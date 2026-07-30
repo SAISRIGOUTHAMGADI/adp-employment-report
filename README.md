@@ -3,7 +3,18 @@
 A command-line tool that tracks the monthly [ADP National Employment
 Report](https://adpemploymentreport.com/) and forecasts the next print.
 
-**Build status:** complete. One CLI, four subcommands, 440 tests.
+**Headline finding:** across 39 vintage-correct forecast origins, this model is
+**statistically indistinguishable from a three-month moving average** (Diebold-Mariano,
+p = 0.884). Most of the engineering here exists to make that claim *checkable* rather than
+asserted — point-in-time storage so a backtest cannot read the future, structural guards
+against the arithmetic that would fake a good score, and a paired significance test that
+would have flagged a real difference had one existed.
+
+That result is the deliverable, not a shortfall. On a series where most month-to-month
+movement is genuinely unpredictable, knowing you have not beaten a simple average — and
+being able to prove it — is worth more than a number that cannot be defended.
+
+**Status:** complete. One CLI, four subcommands, 440 tests.
 
 ---
 

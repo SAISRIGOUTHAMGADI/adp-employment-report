@@ -745,7 +745,93 @@ should not be able to diverge.
 
 ---
 
-## Turn 16 — Significance testing
+## Turn 16 — Clean-clone verification, and two bugs it found
+
+**My prompt:**
+
+> I just committed and pushed to main. Now what I want to do is. Clone the repository back
+> into a subfolder. And just read the README.md and see if everything works as expected.
+> line by line. I will keep you posted.
+
+**What the model did first:** started cloning the repo itself to "run in parallel". I told
+it to stop — I had said I would do it. It recorded the correction and waited. Second time
+in the session I had to pull it back from doing unrequested work.
+
+**What the walkthrough found — two real bugs, both mine to catch:**
+
+1. **`adp-forecast: command not found`.** The README said to create the venv and install,
+   then use `adp-forecast` — but never said `source .venv/bin/activate`. The failure is a
+   bare "command not found" with no hint at the cause, which is exactly the wall a
+   reviewer hits thirty seconds into evaluating the submission.
+
+   > you have to have the source .venv/bin/activate command written in the README please
+   > update that now.
+
+2. **A stale command in the forecast output.** The accuracy caveat still said *"run
+   `scripts/backtest.py`"* after the CLI migration had made that a deprecated shim.
+
+   > Accuracy is not measured by scripts/backtest, it is measured by adp-forecast
+   > backtest. you have to change that
+
+**What I did with it:** **Used as-is**, and this turn justified the whole exercise. Both
+bugs were in the *documented path* — the one thing that had never been executed end to end
+because the model always ran commands from an already-configured working tree.
+
+The second bug is worth noting for how it survived: the model had updated the README's
+references during the CLI migration but missed this one, because its search-and-replace
+matched the README's line wrapping and the source wraps differently. It responded by
+adding a test that greps `src/` for any user-facing `scripts/` reference, so the class of
+error cannot recur silently.
+
+---
+
+## Turn 17 — Cross-checking the brief, line by line
+
+**My prompt:**
+
+> Now cross compare what was asked in the assessment and what we did and see what is left
+> and what needs to be done. Go line by line and do a full comprehensive analysis and let
+> me know
+
+**What the model did:** Audited every line of the brief against the repository and found
+five gaps, ranked. The one that mattered:
+
+**PROMPTS.md was in the least-preferred format.** The brief lists three acceptable formats
+in explicit preference order, with *"Raw logs from Claude Code (preferred — highest
+fidelity)"* first and *"manually written prompts + notes"* last. We had shipped the last
+one — and the raw log was sitting on disk the whole time, 3.6 MB of it.
+
+Its argument for why this mattered more than it looked: the curated log is the model
+summarising its own conduct, so every claim in it is unverifiable by a reviewer. The raw
+log is unfalsifiable, and it is the artefact tied to *"we're evaluating your ability to
+build with AI"*.
+
+**My prompt back:**
+
+> I was actually gonna suggest we need to completely ship the entire log chat of this as
+> well. So let's get that thing added now on the 1. And update the 3 as well. you gotta
+> add evidence of 2 on what we did so that we know what we are doing.
+
+**What the model did:** Wrote `tools/export_transcript.py` and committed it, so the
+transformation from raw session to shipped artefact is inspectable rather than trusted.
+Both formats now ship: the raw JSONL and a readable Markdown rendering.
+
+It also found and redacted **a live FRED API key** in the transcript — it had leaked into
+an HTTP error message that echoed the request URL, from a `raise_for_status` call the
+model had itself replaced earlier for that exact reason. The deliberately-invalid keys
+used to probe error handling are preserved, since that probe is part of the story.
+
+For the scope question — the brief says "the next set of *numbers*", plural — it queried
+the release rather than asserting: 129 series, of which 5 are the headline total-private
+and 124 are industry, region and firm-size cuts. Pay growth turned out to be **not on FRED
+at all**, which converts an apparent omission into a documented boundary with a named seam
+(`IngestionPort`).
+
+**What I did with it:** **Used as-is.**
+
+---
+
+## Turn 18 — Significance testing
 
 **My prompt:**
 
@@ -769,6 +855,56 @@ the tests rather than the code, and added a test pinning that behaviour.
 start. "Competitive, not better" was an impression; "statistically indistinguishable at
 p = 0.884" is a fact, and it retroactively justifies the decision several turns earlier to
 stop tuning.
+
+---
+
+## Turn 19 — Checking the explanation was actually there
+
+**My prompt:**
+
+> did you add the diebold mariano explanation as well in README? check
+
+**What the model did:** Checked, and found it had **name-dropped the test without
+explaining it**. The README had the results table and the interpretation, but the
+reasoning — what the test actually measures, why paired matters, why two small-sample
+corrections — existed only in the module docstring where no reviewer would read it.
+
+It added a "Why Diebold-Mariano" section, and the sentence that earns its place is the one
+explaining the *result*: a model beating the baseline by 1.3k every single month would be
+significant; ridge is not, because its per-month differential swings wildly around that
+average.
+
+It also added something I had not asked for and should have: **a non-significant result is
+not proof the models are equal.** At n=39 the test has limited power, so the correct
+reading is *"no improvement has been demonstrated"*, not *"no improvement exists"*. Without
+that, the README would have been overclaiming in the opposite direction — using a null
+result as if it were a positive finding of equivalence.
+
+**What I did with it:** **Used as-is.** Asking "did you actually do it?" turned out to be
+worth asking. The work was half-done in a way that would have read as complete.
+
+---
+
+## Turn 20 — Final audit
+
+**My prompt:**
+
+> Do one more comprehensive view of things make sure everyhting is looking good. All the
+> test points have been asked and answered and if I missed anything
+
+**What the model did:** Audited the pushed state rather than its own memory of it. Clean on
+every check that matters — no secrets tracked, all internal links resolve, the claimed test
+count matches reality, README example outputs are identical to live output, no TODOs, and
+critically **432 tests pass with no API key configured**, which is the state a reviewer
+clones into.
+
+It found two gaps, both the same root cause — the log artefacts lag the conversation that
+produces them:
+
+* the committed transcript was ~44 records behind the live session
+* this file stopped at Turn 15, missing the entire verification phase
+
+Which is why the last action before submitting is to re-export and commit.
 
 ---
 
