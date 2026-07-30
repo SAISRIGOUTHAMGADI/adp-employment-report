@@ -74,14 +74,7 @@ def main_options(
 
 
 @app.command()
-def ingest(
-    start: Optional[str] = typer.Option(
-        None, "--start", help="Earliest reference period, YYYY-MM-DD."
-    ),
-    series: Optional[list[str]] = typer.Option(
-        None, "--series", help="Series to ingest. Repeatable. Defaults to all."
-    ),
-) -> None:
+def ingest() -> None:
     """Fetch every tracked series from FRED with full revision history.
 
     Idempotent: re-running upserts on the vintage key and closes any window a revision
@@ -90,8 +83,8 @@ def ingest(
     arriving after it.
     """
     database = _database()
-    start_date = _parse_date(start) if start else DEFAULT_START
-    targets = _validated_series(series)
+    start_date = DEFAULT_START  # just using default start here. enough
+    targets = _validated_series(None)
 
     def run(storage: SqliteStorage) -> int:
         with FredAdapter(FredSettings.from_env()) as adapter:
@@ -109,13 +102,13 @@ def ingest(
 
 @app.command()
 def history(
-    series: str = typer.Option(
-        TARGET_SERIES_ID, "--series", help="Registered series to display."
-    ),
-    count: int = typer.Option(12, "--count", "-n", min=1, help="Rows to show."),
+    # series: str = typer.Option(
+    #     TARGET_SERIES_ID, "--series", help="Registered series to display."
+    # ),
+    count: int = typer.Option(12, "--count", "-n", min=1, help="Rows to show."), # gonna keep the count
 ) -> None:
     """Show recent published values and their month-over-month changes."""
-    spec = _spec(series)
+    spec = _spec(TARGET_SERIES_ID)
 
     def run(storage: SqliteStorage) -> int:
         observations = storage.read_observations(spec.series_id, as_of=date.today())

@@ -149,7 +149,10 @@ class IngestService:
             len(targets),
             start.isoformat() if start else "beginning",
         )
-        self._storage.initialise()
+
+        # its kinda double initialize we don't need to
+
+#        self._storage.initialise()
 
         results = tuple(self._ingest_series(series_id, start) for series_id in targets)
         release_dates_written = self._ingest_release_dates(release_id)
