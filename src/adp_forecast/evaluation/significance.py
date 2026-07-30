@@ -28,6 +28,18 @@ Only one-step-ahead forecasts are produced here, so the loss differential carrie
 autocorrelation by construction and its long-run variance is the sample variance. Longer
 horizons would need a HAC estimator; :func:`diebold_mariano` rejects ``horizon > 1``
 rather than silently returning an overconfident number.
+
+Multiple comparisons
+--------------------
+Each function call tests one pair, and no correction for multiple testing is applied here,
+because the module cannot know how many comparisons a caller will make. The backtest
+report currently runs eight (four rivals under two loss functions), which carries roughly a
+34% chance of at least one spurious rejection at alpha = 0.05 if every null were true.
+
+That does not affect the conclusion this project reports, because **none** of the eight is
+significant, and a family-wise correction only ever makes rejection harder. It would matter
+if a future run produced a lone significant result: that result would need a Holm or
+Bonferroni adjustment before being believed, and the caller is responsible for applying it.
 """
 
 from __future__ import annotations
@@ -173,20 +185,32 @@ def diebold_mariano(
     ]
 
     mean_differential = fmean(differentials)
-    # Sample variance of the differential. For h=1 this is the long-run variance, since
-    # one-step-ahead loss differentials are serially uncorrelated under the null.
-    variance = sum((d - mean_differential) ** 2 for d in differentials) / (n - 1)
-    if variance <= 0.0:
+
+    # Lag-zero autocovariance with the BIASED 1/n divisor, which is what Diebold-Mariano
+    # specifies. Using the unbiased 1/(n-1) sample variance instead would be a subtle
+    # error: 1/(n-1) already embeds a sqrt((n-1)/n) factor, and at h=1 that is exactly
+    # the HLN correction applied below, so the correction would land twice and the
+    # statistic would come out about 1.3% small at n=39.
+    #
+    # At h=1 this is also the long-run variance, because one-step-ahead loss
+    # differentials are serially uncorrelated under the null. Longer horizons would need
+    # a HAC estimator, which is why horizon > 1 is refused above.
+    gamma_zero = sum((d - mean_differential) ** 2 for d in differentials) / n
+    if gamma_zero <= 0.0:
         raise InsufficientDataError(
             f"{model_name} and {baseline_name} produced identical losses at every "
             "origin, so no test statistic is defined."
         )
 
-    statistic = mean_differential / math.sqrt(variance / n)
+    statistic = mean_differential / math.sqrt(gamma_zero / n)
 
-    # Harvey-Leybourne-Newbold small-sample correction. At h=1 the factor reduces to
-    # sqrt((n - 1) / n); without it the test over-rejects at this sample size.
-    correction = math.sqrt((n + 1 - 2 * horizon) / n)
+    # Harvey-Leybourne-Newbold (1997) small-sample correction. The published factor is
+    # sqrt((n + 1 - 2h + h(h-1)/n) / n); at h=1 the h(h-1) term is exactly zero, so this
+    # reduces to sqrt((n - 1) / n) with no approximation. Without it the test
+    # over-rejects at this sample size.
+    correction = math.sqrt(
+        (n + 1 - 2 * horizon + horizon * (horizon - 1) / n) / n
+    )
     corrected = statistic * correction
 
     p_value = _student_t_two_sided_p(corrected, degrees_of_freedom=n - 1)

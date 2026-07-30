@@ -130,6 +130,11 @@ class BacktestReport:
         Args:
             model: Registered model name.
         """
+        if model not in self.scores:
+            raise KeyError(
+                f"'{model}' was not scored in this backtest. "
+                f"Models available: {', '.join(sorted(self.scores))}"
+            )
         common = set(self.common_origins)
         return [
             outcome.points[model] - outcome.actual

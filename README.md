@@ -5,7 +5,7 @@ Report](https://adpemploymentreport.com/) and forecasts the next print.
 
 **Headline finding:** across 39 vintage-correct forecast origins, this model is
 **statistically indistinguishable from a three-month moving average** (Diebold-Mariano,
-p = 0.884). Most of the engineering here exists to make that claim *checkable* rather than
+p = 0.882). Most of the engineering here exists to make that claim *checkable* rather than
 asserted: point-in-time storage so a backtest cannot read the future, structural guards
 against the arithmetic that would fake a good score, and a paired significance test that
 would have flagged a real difference had one existed.
@@ -14,7 +14,7 @@ That result is the deliverable, not a shortfall. On a series where most month-to
 movement is genuinely unpredictable, knowing you have not beaten a simple average, and
 being able to prove it, is worth more than a number that cannot be defended.
 
-**Status:** complete. One CLI, four subcommands, 440 tests.
+**Status:** complete. One CLI, four subcommands, 445 tests.
 
 ---
 
@@ -107,7 +107,7 @@ costs ~2s, and a cutoff would miss a revision to an older observation arriving a
 ### Tests and linting
 
 ```bash
-pytest                      # everything (440 tests)
+pytest                      # everything (445 tests)
 pytest -m "not live"        # offline only, no API key needed
 flake8 src tests scripts
 ```
@@ -139,7 +139,7 @@ project were ones where I told it no.
 | **A structural guard, not a feature flag** | The AI offered to keep rebenchmark masking behind a default-off flag. I rejected it: that is dead scaffolding for a problem that no longer exists. I asked for the real rule enforced instead, so cross-vintage arithmetic now raises rather than being merely discouraged. |
 | **One unit conversion, enforced by test** | ADP publishes persons, BLS publishes thousands. I would not accept every reader dividing by 1000 on its own, because someone forgets or someone does it twice and the forecast is wrong by 1000x with nothing throwing an error. One function, one test guarding it. |
 | **Stop chasing accuracy** | When the model reached parity with a three-month mean, I called it. Continuing would have meant tuning against the test set, and the honest number plus the diagnosis was always the deliverable. |
-| **Prove the tie** | I asked whether ridge's 62.1 versus 63.4 was real or luck. That question produced the Diebold-Mariano test and the p = 0.884 result that the README now leads with. |
+| **Prove the tie** | I asked whether ridge's 62.1 versus 63.4 was real or luck. That question produced the Diebold-Mariano test and the p = 0.882 result that the README now leads with. |
 | **Engineering standards** | SDLC discipline, code to interfaces, complexity awareness, Flake8 clean, docstrings, real logging, a full exception hierarchy, and tests on everything. Set as non-negotiable before the first line was written. |
 
 ### Where I overruled it
@@ -504,10 +504,44 @@ per-month differential swings wildly around that average.
 in the table above they do. Testing under absolute loss speaks to the MAE ranking, under
 squared loss to RMSE. Reporting only one would hide the disagreement.
 
-**Two small-sample corrections, because n = 39 is small.** The Harvey-Leybourne-Newbold
-adjustment shrinks the statistic, and it is compared against Student's *t* with 38 degrees
-of freedom rather than the normal. Without both, the test over-rejects. It would
-manufacture exactly the false confidence it exists to prevent.
+#### Why both Diebold-Mariano and Harvey-Leybourne-Newbold
+
+These are not two competing tests. **HLN is a correction applied to the DM statistic**, and
+this project uses both together, which is standard practice.
+
+**Diebold-Mariano (1995)** provides the statistic. It asks whether the mean loss
+differential is distinguishable from zero:
+
+```
+gamma0 = (1/T) * sum((d - dbar)^2)        lag-zero autocovariance
+DM     = dbar / sqrt(gamma0 / T)
+```
+
+**Harvey, Leybourne and Newbold (1997)** showed that DM over-rejects on short samples, so
+in practice the raw 1995 statistic is rarely used on its own. Their correction rescales it
+and swaps the reference distribution from standard normal to Student's *t*:
+
+```
+S1* = DM * sqrt((T + 1 - 2h + h(h-1)/T) / T)      compared against t with T-1 df
+```
+
+With T = 39 that matters. Uncorrected, the test would reject too readily and manufacture
+exactly the false confidence it exists to prevent.
+
+**Only h = 1 is implemented, deliberately.** At h = 1 the `h(h-1)` term is exactly zero, so
+the factor reduces to `sqrt((T-1)/T)` with no approximation. Multi-step horizons need more
+than this correction: the loss differential becomes autocorrelated, so `gamma0` would have
+to be replaced by a HAC (Newey-West) long-run variance. Implementing the general HLN factor
+while keeping a plain `gamma0` would look like multi-step support without being it, so
+`diebold_mariano` raises on `horizon > 1` instead.
+
+One subtlety worth recording, because it was a real bug here: DM specifies the **biased**
+`1/T` divisor for `gamma0`. The unbiased `1/(T-1)` sample variance already contains a
+`sqrt((T-1)/T)` factor, which at h = 1 *is* the HLN correction, so using it applies the
+correction twice and shrinks the statistic by about 1.3% at this sample size. The first
+implementation here did exactly that.
+[`tests/test_significance.py`](tests/test_significance.py) now pins the statistic against
+the published formulae written out longhand, at four sample sizes.
 
 **One assumption worth stating:** the loss differential must be serially uncorrelated,
 which holds for one-step-ahead forecasts and is all this project produces. Longer horizons
@@ -527,19 +561,26 @@ Harvey-Leybourne-Newbold small-sample correction:
 
 | ridge vs | loss | mean diff | t | p | verdict |
 |---|---|---|---|---|---|
-| random_walk | absolute | −4.2 | −0.49 | 0.624 | indistinguishable |
-| random_walk | squared | +674.4 | 0.38 | 0.705 | indistinguishable |
-| **mean_3m** | **absolute** | **−1.3** | **−0.15** | **0.884** | **indistinguishable** |
-| mean_3m | squared | +578.2 | 0.28 | 0.783 | indistinguishable |
-| mean_6m | absolute | −4.8 | −0.58 | 0.567 | indistinguishable |
-| drift | absolute | −5.0 | −0.60 | 0.552 | indistinguishable |
+| random_walk | absolute | -4.2 | -0.50 | 0.620 | indistinguishable |
+| random_walk | squared | +674.4 | 0.39 | 0.701 | indistinguishable |
+| **mean_3m** | **absolute** | **-1.3** | **-0.15** | **0.882** | **indistinguishable** |
+| mean_3m | squared | +578.2 | 0.28 | 0.780 | indistinguishable |
+| mean_6m | absolute | -4.8 | -0.59 | 0.562 | indistinguishable |
+| drift | absolute | -5.0 | -0.61 | 0.547 | indistinguishable |
 
-**Not one comparison is significant.** At p = 0.884, if ridge and a 3-month mean were
+**Eight comparisons, no multiplicity correction, and it does not matter here.** Four
+rivals under two loss functions is eight tests; at alpha = 0.05 that carries roughly a 34%
+chance of one spurious rejection if every null were true. No Holm or Bonferroni adjustment
+is applied, because **none of the eight is significant** and a family-wise correction only
+ever makes rejection harder. It would matter if a future run produced a lone significant
+result, and the module documents that.
+
+**Not one comparison is significant.** At p = 0.882, if ridge and a 3-month mean were
 genuinely identical forecasters you would see a gap this large or larger 88% of the time
 purely from which 39 months you happened to land on.
 
 The result cuts both ways, which is what makes it credible rather than convenient:
-ridge's apparently *worse* RMSE is equally not real (p = 0.705–0.783). Neither the win
+ridge's apparently *worse* RMSE is equally not real (p = 0.701 to 0.780). Neither the win
 nor the loss survives contact with a significance test.
 
 So the honest claim is narrow and stated deliberately: **on 39 vintage-correct origins,
@@ -681,7 +722,7 @@ comparison needs consensus figures FRED does not carry.
 - [x] **Explanation.** Plain-English "why" generated from the model's own arithmetic,
       with a consistency guard
 - [x] **CLI.** One `typer` entry point, four subcommands, `--json` output
-      (440 tests total)
+      (445 tests total)
 - [ ] Optional: FastAPI shim, Cloud Run
 
 ### What I'd build next with another week

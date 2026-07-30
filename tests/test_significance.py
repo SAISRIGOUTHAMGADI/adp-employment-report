@@ -256,3 +256,48 @@ def test_small_sample_correction_shrinks_the_statistic():
     uncorrected = result.statistic / math.sqrt((result.n - 1) / result.n)
 
     assert abs(result.statistic) < abs(uncorrected)
+
+
+# -- agreement with the published formula ---------------------------------------
+
+
+def _textbook_dm(model_errors, baseline_errors, horizon=1):
+    """Diebold-Mariano (1995) with the Harvey-Leybourne-Newbold (1997) correction.
+
+    Written out longhand, straight from the published formulae, as an independent
+    reference for the implementation:
+
+        gamma0 = (1/T) * sum((d - dbar)^2)          <- biased divisor
+        DM     = dbar / sqrt(gamma0 / T)
+        S1*    = DM * sqrt((T + 1 - 2h + h(h-1)/T) / T)
+    """
+    d = [abs(a) - abs(b) for a, b in zip(model_errors, baseline_errors)]
+    t = len(d)
+    dbar = sum(d) / t
+    gamma0 = sum((x - dbar) ** 2 for x in d) / t
+    dm = dbar / math.sqrt(gamma0 / t)
+    return dm * math.sqrt((t + 1 - 2 * horizon + horizon * (horizon - 1) / t) / t)
+
+
+@pytest.mark.parametrize("n", [12, 25, 39, 80])
+def test_statistic_matches_the_published_formula(n):
+    """Guards against the correction being applied twice.
+
+    The unbiased 1/(n-1) sample variance already contains a sqrt((n-1)/n) factor, which
+    at h=1 *is* the HLN correction. Using it would silently double-apply the correction.
+    """
+    baseline = [RNG.gauss(0, 88) for _ in range(n)]
+    model = [error * 0.9 + RNG.gauss(0, 40) for error in baseline]
+
+    assert diebold_mariano(model, baseline).statistic == pytest.approx(
+        _textbook_dm(model, baseline), rel=1e-12
+    )
+
+
+def test_hln_reduces_to_the_simple_factor_at_one_step():
+    """h(h-1) is exactly zero at h=1, so no approximation is involved."""
+    n = 39
+    published = math.sqrt((n + 1 - 2 * 1 + 1 * (1 - 1) / n) / n)
+    simplified = math.sqrt((n - 1) / n)
+
+    assert published == pytest.approx(simplified, rel=1e-15)

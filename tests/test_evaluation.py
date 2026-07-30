@@ -239,3 +239,13 @@ def test_scorecard_names_are_stable():
     """Persisted in reports, so renaming would silently invalidate saved results."""
     assert Scorecard.VINTAGE.value == "vintage"
     assert Scorecard.LAG_SHIFTED.value == "lag_shifted"
+
+
+def test_errors_for_an_unscored_model_says_what_is_available(store):
+    """A bare KeyError from a typo gives a reader nothing to act on."""
+    report = Backtester(store).run(
+        Scorecard.VINTAGE, models=("random_walk",), today=date(2026, 7, 30)
+    )
+
+    with pytest.raises(KeyError, match="Models available"):
+        report.errors("nope")
