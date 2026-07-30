@@ -116,6 +116,7 @@ class StoragePort(Protocol):
         """
         ...
 
+# these are the read/write interface for that ingestion unread data, so they got scrapped.
     # def record_checkpoint(self, checkpoint: IngestCheckpoint) -> None:
     #     """Persist the checkpoint for a completed per-series ingest."""
     #     ...
