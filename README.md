@@ -14,7 +14,7 @@ That result is the deliverable, not a shortfall. On a series where most month-to
 movement is genuinely unpredictable, knowing you have not beaten a simple average, and
 being able to prove it, is worth more than a number that cannot be defended.
 
-**Status:** complete. One CLI, four subcommands, 445 tests.
+**Status:** complete. One CLI, four subcommands, 440 tests.
 
 ---
 
@@ -107,7 +107,7 @@ costs ~2s, and a cutoff would miss a revision to an older observation arriving a
 ### Tests and linting
 
 ```bash
-pytest                      # everything (445 tests)
+pytest                      # everything (440 tests)
 pytest -m "not live"        # offline only, no API key needed
 flake8 src tests scripts
 ```
@@ -710,8 +710,8 @@ comparison needs consensus figures FRED does not carry.
 ## Roadmap
 
 - [x] **Ingestion.** `IngestionPort` + `FredAdapter`, vintage-aware, retry
-- [x] **Storage.** SQLite, three-part vintage key, idempotent upsert, per-series
-      checkpoints, `units.py` conversion choke point
+- [x] **Storage.** SQLite, three-part vintage key, idempotent upsert,
+      `units.py` conversion choke point
 - [x] **Features.** Calendar-month-mean aggregation behind a swappable rule,
       vintage-safe differencing, point-in-time panel assembly
 - [x] **Forecast.** Hand-rolled numpy ridge + four naive baselines behind one port
@@ -719,7 +719,7 @@ comparison needs consensus figures FRED does not carry.
 - [x] **Explanation.** Plain-English "why" generated from the model's own arithmetic,
       with a consistency guard
 - [x] **CLI.** One `typer` entry point, four subcommands, `--json` output
-      (445 tests total)
+      (440 tests total)
 - [ ] Optional: FastAPI shim, Cloud Run
 
 ### What I'd build next with another week
