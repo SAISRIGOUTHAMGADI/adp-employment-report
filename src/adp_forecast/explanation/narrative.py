@@ -327,7 +327,7 @@ class ForecastExplainer:
         if self._accuracy is None:
             return (
                 "Accuracy is measured by walk-forward backtest; run "
-                "`scripts/backtest.py` for current figures."
+                "`adp-forecast backtest` for current figures."
             )
 
         sentence = (
