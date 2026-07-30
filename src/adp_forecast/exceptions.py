@@ -61,11 +61,11 @@ class ResponseValidationError(PermanentIngestionError):
     """
 
 
-class FeatureError(AdpForecastError):
-    """Base class for failures originating in the feature layer."""
+# class FeatureError(AdpForecastError):
+#     """Base class for failures originating in the feature layer."""
 
 
-class VintageMismatchError(FeatureError):
+class VintageMismatchError(AdpForecastError):
     """An arithmetic operation was attempted across two incompatible vintages.
 
     The structural guard against the highest-impact bug in this project. A rebenchmark
@@ -80,19 +80,19 @@ class VintageMismatchError(FeatureError):
     """
 
 
-class InsufficientDataError(FeatureError):
+class InsufficientDataError(AdpForecastError):
     """Not enough underlying observations existed to form a requested feature."""
 
 
-class StorageError(AdpForecastError):
-    """Base class for failures originating in the storage layer."""
+# class StorageError(AdpForecastError):
+#     """Base class for failures originating in the storage layer."""
 
 
-class StorageIntegrityError(StorageError):
+class StorageIntegrityError(AdpForecastError):
     """The database rejected a write, or its contents violate an invariant."""
 
 
-class VintageValidationError(StorageError):
+class VintageValidationError(AdpForecastError):
     """A batch of observations does not carry usable vintage windows.
 
     Guards the one write path against persisting *display-only* records. A
