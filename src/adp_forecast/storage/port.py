@@ -11,34 +11,33 @@ conform, which keeps the dependency arrow pointing one way.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from typing import Protocol, Sequence, runtime_checkable
 
 from ..domain import Observation
 
 
-@dataclass(frozen=True, slots=True)
-class IngestCheckpoint:
-    """Record of the last completed ingest for one series.
+# @dataclass(frozen=True, slots=True)
+# class IngestCheckpoint:
+#     """Record of the last completed ingest for one series.
 
-    Attributes:
-        series_id: The series this checkpoint describes.
-        max_obs_date: Newest reference period stored, or ``None`` if the series held
-            no observations.
-        row_count: Rows written by that run.
-        completed_at: When the run finished.
-    """
+#     Attributes:
+#         series_id: The series this checkpoint describes.
+#         max_obs_date: Newest reference period stored, or ``None`` if the series held
+#             no observations.
+#         row_count: Rows written by that run.
+#         completed_at: When the run finished.
+#     """
 
-    series_id: str
-    max_obs_date: date | None
-    row_count: int
-    completed_at: datetime
+#     series_id: str
+#     max_obs_date: date | None
+#     row_count: int
+#     completed_at: datetime
 
 
 @runtime_checkable
 class StoragePort(Protocol):
-    """Persistence for observations, release dates and ingest checkpoints.
+    """Persistence for observations, release dates.
 
     Implementations must make writes idempotent: ingestion re-fetches overlapping
     ranges on every run, so writing the same batch twice must leave the store in the
@@ -117,13 +116,13 @@ class StoragePort(Protocol):
         """
         ...
 
-    def record_checkpoint(self, checkpoint: IngestCheckpoint) -> None:
-        """Persist the checkpoint for a completed per-series ingest."""
-        ...
+    # def record_checkpoint(self, checkpoint: IngestCheckpoint) -> None:
+    #     """Persist the checkpoint for a completed per-series ingest."""
+    #     ...
 
-    def read_checkpoint(self, series_id: str) -> IngestCheckpoint | None:
-        """Return the stored checkpoint for a series, or ``None`` if never ingested."""
-        ...
+    # def read_checkpoint(self, series_id: str) -> IngestCheckpoint | None:
+    #     """Return the stored checkpoint for a series, or ``None`` if never ingested."""
+    #     ...
 
     def count_observations(self, series_id: str | None = None) -> int:
         """Count stored observations, for one series or the whole store.
