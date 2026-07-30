@@ -166,9 +166,6 @@ had never done because it always worked from a configured tree:
    `source .venv/bin/activate`. That is the wall a reviewer hits thirty seconds in.
 2. **A stale command in the program's own output.** The accuracy caveat still pointed at
    `scripts/backtest.py` after the CLI migration made that a deprecated shim.
-3. **Diebold-Mariano was name-dropped, not explained.** I asked whether the explanation was
-   actually in the README. It was not. The reasoning existed only in a module docstring
-   where no reviewer would ever see it.
 
 ### Where the AI genuinely earned its place
 
