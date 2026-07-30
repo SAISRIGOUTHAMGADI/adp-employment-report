@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adp-forecast"
+version = "0.1.0"
+description = "Track and forecast the ADP National Employment Report"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    # numpy is declared explicitly rather than relied on as a pandas transitive:
+    # the forecast layer imports it directly, so it is a first-class dependency.
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "python-dotenv>=1.0",
+    "typer>=0.12",
+]
+
+[project.scripts]
+adp-forecast = "adp_forecast.cli.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "flake8>=7.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/adp_forecast"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: hits the real FRED API; skipped without FRED_API_KEY (deselect with -m 'not live')",
+]
+
+[tool.flake8]
+max-line-length = 100
+exclude = [".git", "__pycache__", ".venv", "build", "dist"]

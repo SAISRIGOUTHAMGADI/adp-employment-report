@@ -1,2 +1,519 @@
-# adp-employment-report
-adp-employment-report
+# ADP National Employment Report — tracker and forecaster
+
+A command-line tool that tracks the monthly [ADP National Employment
+Report](https://adpemploymentreport.com/) and forecasts the next print.
+
+**Build status:** complete. One CLI, four subcommands, 409 tests.
+
+---
+
+## Quickstart
+
+Requires Python 3.11+. [`uv`](https://docs.astral.sh/uv/) is used below; `python -m venv`
+and `pip` work identically.
+
+```bash
+git clone https://github.com/SAISRIGOUTHAMGADI/adp-employment-report.git
+cd adp-employment-report
+uv venv .venv
+uv pip install --python .venv/bin/python -e '.[dev]'
+```
+
+Get a free FRED API key at <https://fredaccount.stlouisfed.org/apikeys>, then:
+
+```bash
+cp .env.example .env
+# edit .env and set FRED_API_KEY=<your 32-char key>
+```
+
+Then ingest, forecast, and inspect:
+
+```bash
+adp-forecast ingest                  # pull all 7 series with full revision history (~2s)
+adp-forecast history                 # recent published prints
+adp-forecast forecast                # next month's prediction, with reasoning
+adp-forecast backtest                # accuracy vs naive baselines
+```
+
+`adp-forecast --help` lists everything; each subcommand has its own `--help`. Without an
+editable install, `python -m adp_forecast <command>` works identically.
+
+```
+$ adp-forecast history -n 4
+
+ADP private payrolls — last 4 observations (thousands of persons)
+reference              level    MoM change
+------------------------------------------
+2026-03-01           132,397          +61k
+2026-04-01           132,502         +105k
+2026-05-01           132,624         +122k
+2026-06-01           132,722          +98k
+```
+
+```
+$ adp-forecast forecast
+
+ADP is forecast to report a gain of 53,000 jobs for July 2026, published in the
+next National Employment Report.
+An 80% range runs from a loss of 26,000 jobs to a gain of 101,000 jobs.
+
+The last 6 prints averaged a gain of 77,000 jobs; this forecast sits below that.
+Made from data available on 2026-07-30.
+
+Why:
+  Start from the average month in the 155 months the model was fitted on
+  (a gain of 155,000 jobs), then adjust for current conditions:
+  ADP average change over the past year is 67,333, which subtracts 52,000 jobs.
+  ADP change last month is 98,000, which subtracts 38,000 jobs.
+  Initial claims level this month is 202,750, which subtracts 17,000 jobs.
+
+That is 45,000 jobs below last month's print of a gain of 98,000 jobs.
+
+Caveats:
+  - Drivers show statistical association fitted on 155 months, not causation.
+  - The range comes from the spread of past backtest errors, which assumes error
+    dispersion is stable over time. Measurement shows it is not, so the range is
+    approximate.
+  - March 2020 to June 2022 is excluded from training. Those months are real
+    history but not repeatable dynamics.
+  - Some inputs lag the forecast month by design: BLS private payrolls (1 month
+    behind), Job openings (JOLTS) (2 months behind).
+```
+
+`--with-accuracy` makes the caveats quote measured backtest figures. `--json` emits the
+same forecast as a machine-readable payload — the shape an HTTP endpoint would return,
+available only because the service layer returns dataclasses rather than strings.
+
+`ingest` is idempotent: re-running upserts on the vintage key and closes any window a
+revision has superseded. There is deliberately no incremental mode — a full re-ingest
+costs ~2s, and a cutoff would miss a revision to an older observation arriving after it.
+
+### Tests and linting
+
+```bash
+.venv/bin/python -m pytest                      # everything (409 tests)
+.venv/bin/python -m pytest -m "not live"        # offline only, no API key needed
+.venv/bin/python -m flake8 src tests scripts
+```
+
+Unit tests never touch the network. The integration tests are marked `live` and skip
+automatically when `FRED_API_KEY` is unset, so a fresh clone with no credentials still
+runs green.
+
+---
+
+## Data: what this tracks and why
+
+Everything below was verified against the live FRED API on 2026-07-30 rather than
+assumed. The series registry in
+[`src/adp_forecast/config.py`](src/adp_forecast/config.py) is the single source of
+truth; no series ID is hardcoded anywhere else.
+
+| Series | Role | Freq | Lag | Units | Why |
+|---|---|---|---|---|---|
+| `ADPMNUSNERSA` | **target** | Monthly | 1 | Persons | ADP total private payroll level. Its MoM change is the headline. |
+| `ICSA` | feature | Weekly | 0 | Number | Initial jobless claims — the *flow into* unemployment. Most timely labour signal. |
+| `CCSA` | feature | Weekly | 0 | Number | Continued claims — the *stock* staying unemployed. Confirms blip vs. trend. |
+| `USPRIV` | feature | Monthly | 1 | Thous. | BLS private payrolls — the correct official comparator for ADP. |
+| `PAYEMS` | feature | Monthly | 1 | Thous. | Total nonfarm. Carried so `PAYEMS − USPRIV` yields government payrolls free. |
+| `UNRATE` | feature | Monthly | 1 | Percent | Unemployment rate. Coincident not leading; retained as a level check. |
+| `JTSJOL` | feature | Monthly | **2** | Thous. | JOLTS job openings — labour demand. Published a month later than everything else. |
+
+### Data facts that drive the design
+
+Each of these was a wrong or missing assumption at the start of the project, caught by
+probing the API before writing code:
+
+1. **The API host is `api.stlouisfed.org/fred`.** There is no `api.fred.stlouisfed.org`.
+2. **`NPPTTL` is discontinued** — its FRED title literally ends `(DISCONTINUED)` and the
+   final observation is `2022-05-01`. It was replaced when ADP and the Stanford Digital
+   Economy Lab
+   [changed methodology in August 2022](https://mediacenter.adp.com/2022-08-23-ADP-Research-Institute-and-Stanford-Digital-Economy-Lab-Unveil-New-Methodology-for-ADP-National-Employment-Report).
+3. **ADP publishes `Persons`; BLS publishes `Thousands of Persons`.** ADP's June 2026
+   level is `132,722,000` where `USPRIV` is `135,613`. Units are normalised at the
+   ingestion edge via `SeriesSpec.scale_to_thousands`, because a 1000× error that
+   reaches the model is nearly invisible in output.
+4. **`ADPMNUSNERSA` is revised — 47 vintages exist.** Not monthly, though: ADP revises
+   *once a year* at the January QCEW rebenchmark. The January 2026 rebenchmark moved
+   the entire historical level down ~2.4 million.
+5. **Errors are always HTTP 400 with a JSON body**, for a bad series ID *and* for a
+   rejected key. FRED never returns 5xx for bad input, which is why 4xx is never
+   retried.
+6. **Page limits are per-endpoint.** `series/observations` accepts `limit=100000`;
+   `release/dates` rejects anything above `10000` with an HTTP 400 rather than clamping.
+7. **FRED returns scheduled *future* release dates.** Requesting ADP release dates from
+   2024 currently returns dates through December 2026.
+8. **An unknown `release_id` returns HTTP 200 and an empty list**, so a typo is
+   indistinguishable from "no releases" by status code. Logged as a warning.
+9. **Missing values arrive as the string `"."`** — present in `ICSA` (2) and `UNRATE` (1)
+   within the tracked window, so this is live behaviour, not a theoretical case.
+
+---
+
+## Approach
+
+### Architecture
+
+Ports and adapters. Each layer depends on the *contract* above it, never on a concrete
+implementation:
+
+```
+                 ┌──────────────────────────────┐
+   CLI / API ───► │  service layer (typed objs)  │
+                 └──────────────┬───────────────┘
+      ┌─────────────┬───────────┴────┬──────────────┐
+      ▼             ▼                ▼              ▼
+  forecast      features         evaluation     explanation
+      └─────────────┴────────────────┴──────────────┘
+                          ▼
+                    StoragePort           (SQLite adapter)
+                          ▼
+                   IngestionPort          (FredAdapter)
+                          ▼
+                    FRED REST API
+```
+
+Two decisions worth naming:
+
+- **`IngestionPort` and `ReleaseCalendarPort` are separate protocols.** Any source can
+  hand back a time series; only a source with a publication calendar can say *when*
+  each value was released. One combined interface would force a CSV-backed adapter to
+  stub a method it cannot honour.
+- **Protocols (structural typing), not abstract base classes.** An adapter needs no
+  import from `port.py` to conform, so the dependency arrow points one way and test
+  doubles stay trivial.
+
+The service layer will return typed dataclasses, never formatted strings. That is what
+keeps a FastAPI shim a ~40-line addition instead of a rewrite, and it makes the
+explanation layer assertable on structured `reasons` rather than on prose.
+
+### The vintage model — the central design decision
+
+An observation is keyed by **three** dimensions, not two:
+
+```
+(series_id, reference_date, realtime_start)
+```
+
+`reference_date` is the period the number describes. `realtime_start`/`realtime_end`
+are the window during which that value was the published truth. A statistical agency
+revising a number does not overwrite history: it closes one window and opens another.
+
+This is not academic. `USPRIV` for April 2026 has three vintages:
+
+```
+135,428   known 2026-05-08 .. 2026-06-04
+135,494   known 2026-06-05 .. 2026-07-01
+135,467   known 2026-07-02 .. now
+```
+
+Storing the window lets a backtest ask *"what did I know on 2026-05-20?"* and get an
+honest answer — `Observation.known_on(as_of)` is a one-line filter that reconstructs
+the dataset exactly as it existed that day. Without it, a backtest scores forecasts
+using numbers that had not been published yet, and reports a flattering, meaningless
+accuracy figure.
+
+For the ADP target itself, the size of the problem is stark. Derived month-over-month
+changes, first print versus today's value:
+
+| Month | As published | Today | Difference |
+|---|---|---|---|
+| 2025-03 | +285k | −53k | −338k |
+| 2025-09 | −91k | +88k | +179k |
+| 2025-11 | −27k | +74k | +101k |
+
+September 2025 was published as **−91k** and now reads **+88k**. With typical prints in
+the ±100k range, **the revision is larger than the signal.** Scoring against the current
+vintage would not measure forecasting skill; it would measure whether you guessed a
+future rebenchmark.
+
+### Key tradeoffs
+
+**Full revision history over per-origin snapshots.** The first instinct was to snapshot
+the dataset once per forecast date: ~198 origins × 7 series = 1,386 requests. Measuring
+proved that wrong. FRED range-compresses unchanged vintages, so rows scale with the
+number of *edits*, not observations × vintages — a measured 1.85–9.93 rows per
+observation. The complete revision history for all seven series is **14 requests and
+18,224 rows (1.8 MB)**, and it is a strict superset: any snapshot is recoverable as a
+`WHERE realtime_start <= :as_of AND realtime_end >= :as_of` filter. Cheaper *and* more
+informative than the alternative.
+
+**Model the change, not the level.** The January rebenchmark shifts the level by
+millions. A level model trained across that discontinuity fits an accounting artifact.
+Changes are stationary across rebenchmark levels.
+
+**No rebenchmark masking — a structural guard instead.** An earlier plan masked the ~14
+January transition months. Measurement killed it. A rebenchmark restates the *entire*
+history at once, so any single snapshot is internally consistent and a change computed
+inside one is correct, January included. Across all 46 buildable panels, every January
+is plausible (+106k, +107k, +183k, +22k). The corruption appears only when differencing
+*across* two vintages:
+
+| Reference month | Cross-vintage diff | True published change |
+|---|---|---|
+| 2023-01 | +4,616k | +106k |
+| 2024-01 | +1,926k | +107k |
+| 2026-01 | −2,307k | +22k |
+
+Masking discarded 14 real observations to avoid a mistake nobody should make, and left
+the mistake possible everywhere else. So the rule is enforced structurally instead:
+[`changes.py`](src/adp_forecast/features/changes.py) requires an explicit `as_of`, and
+refuses any subtraction whose operands were not jointly published on it — raising
+`VintageMismatchError` rather than returning a number that never existed. Same principle
+as the units choke point: make the highest-impact bug impossible to reintroduce quietly,
+rather than adding a flag nobody will enable.
+
+**Weekly→monthly by calendar-month mean.** Claims are jumpy week to week and any single
+week is vulnerable to a holiday or one-off spike, so averaging every week in the month
+uses all the information and gives a steadier signal — the same reasoning behind the
+four-week moving average that is the standard way claims are read. The alternative, the
+BLS reference week containing the 12th, matches how payrolls are measured on paper but
+keeps one week and discards the rest; we are predicting the *move*, not reconstructing
+the official number. Both are fully published before the ADP release, so leakage favours
+neither. Built as a swappable rule (`AggregationMethod` enum + registry) so the
+reference-week variant is one function if the backtest shows claims matter.
+
+A **mean** rather than a sum matters more than it looks: 138 stored months contain 4
+week-ending Saturdays and 73 contain 5, so a sum would inject a spurious 25% swing from
+calendar drift alone. A month with fewer than 2 contributing weeks is reported missing
+rather than guessed — the month in progress is usually partial at forecast time.
+
+**The one-day rule.** The forecast origin for a print released on date `R` is `R − 1
+day`. Two independent reasons: the snapshot at `R` already contains the reference month
+released that morning — the answer itself — and other series publish the same morning,
+some after ADP's 08:15 ET release. Verified: at origin `2026-06-30`, June is invisible
+and May is the newest known.
+
+**Publication lags need no manual shifting.** Because every series is read at the same
+`as_of`, a series in arrears is simply absent for its missing months. JOLTS resolves to
+T−2 with no lag arithmetic anywhere in the code.
+
+**SQLite over CSV.** Not chosen for scale (~18k rows is trivial either way) but for the
+key structure. A three-part vintage key with idempotent re-ingest is
+`INSERT ... ON CONFLICT DO UPDATE`; in CSV it is read-all-into-pandas, dedupe, rewrite.
+`sqlite3` is stdlib, so it adds zero dependencies to a clone-and-run.
+
+**One unit-conversion choke point, enforced by test.** `to_thousands()` in
+[`units.py`](src/adp_forecast/units.py) is the only code that reads
+`scale_to_thousands`. A 1000× error throws no exception and produces plausible-looking
+output, so relying on every reader to remember the conversion — and to apply it exactly
+once — is not a control. `tests/test_units.py` asserts across the whole source tree that
+no other module references the scale factor or hand-rolls a `/ 1000`, so a second
+conversion site fails the build rather than shipping.
+
+**No secondary index on the realtime columns.** A
+`(series_id, realtime_start, realtime_end)` index was added, measured, and removed.
+Because `observations` is `WITHOUT ROWID`, the primary key *is* the table, ordered
+`(series_id, obs_date, realtime_start)` — so a `series_id` seek yields a contiguous run
+already sorted in exactly the order the point-in-time query wants. SQLite never chose
+the index even with `ANALYZE` statistics present. Over 6,160 as-of queries the runtime
+was identical (4487ms vs 4488ms) while the index cost 784 KB, a third of total database
+size, plus write amplification on every ingest. Documented in
+[`schema.sql`](src/adp_forecast/storage/schema.sql) with the condition under which to
+revisit.
+
+**Storage rejects display-only records.** `fetch(all_vintages=False)` reports every
+row's `realtime_start` as the *fetch* date rather than the real publication date, and
+since both it and genuine current-vintage data carry
+`realtime_end = '9999-12-31'`, the schema cannot express the difference. Persisting them
+would look identical to real history while silently destroying point-in-time
+reconstruction. `upsert_observations` therefore enforces the one invariant that does
+separate them: a genuine batch contains at least one row whose `realtime_start` predates
+its own `fetched_at`.
+
+**Retry on our own exception types, not on HTTP status codes.** `retry.py` retries
+`TransientIngestionError` and re-raises `PermanentIngestionError` immediately. This
+keeps the retry policy source-agnostic — a future database adapter reuses it unchanged
+by classifying its own failures into the same split — and it means a typo'd series ID
+costs one request instead of four against a ~120 req/min budget.
+
+**Known limitation:** ADP vintages only extend back 47 months, because ALFRED holds no
+as-of data for the series before the 2022 methodology change. A *fully* vintage-correct
+backtest is therefore only possible over ~47 origins. This is a hard data limit, not a
+storage choice. The evaluation plan below accounts for it with two scorecards.
+
+---
+
+## How forecast accuracy was evaluated, and what the results were
+
+Reproduce everything below with:
+
+```bash
+adp-forecast backtest
+```
+
+**Protocol.** Expanding-window walk-forward. Every model is refit from scratch at each
+origin and asked for one month ahead. Origins are *real ADP release dates* pulled from
+FRED (`release_id=194`), never a computed "first Wednesday" rule — that drifts around
+holidays, and an origin one day late leaks data that did not exist yet, producing no
+error and an implausibly good score. Scheduled future dates are excluded.
+
+**Models are scored only on origins where every model produced a forecast.** They have
+different data requirements — ridge needs a 12-month trailing window the earliest origins
+cannot supply — so scoring each on whatever it managed would compare them over different
+months and different difficulty. Dropped origins are reported, not absorbed.
+
+### Headline: vintage-correct scorecard
+
+39 origins, Feb 2023 → Jul 2026. Point-in-time panels; each forecast scored against the
+number ADP **actually printed that morning**, not today's revised figure.
+
+| model | n | MAE | RMSE | bias | dir% | cover | gap | width |
+|---|---|---|---|---|---|---|---|---|
+| **ridge** | 39 | **62.1** | 88.0 | +3.0 | 95% | 85% | +5pp | 256k |
+| random_walk | 39 | 66.3 | **84.1** | +5.4 | 92% | 97% | +17pp | 376k |
+| mean_3m | 39 | 63.4 | 84.6 | +7.6 | 95% | 92% | +12pp | 319k |
+| mean_6m | 39 | 66.9 | 88.1 | +15.5 | 95% | 95% | +15pp | 309k |
+| drift | 39 | 67.1 | 84.7 | +7.4 | 92% | 97% | +17pp | 382k |
+
+**What this does and does not show.** Ridge has the best MAE, beating the random walk by
+6.3% and the 3-month mean by 2.0%. But 2% on 39 observations is noise, and **ridge has
+the worst RMSE of any model** — it trades many small errors for a few large ones. The
+defensible claim is that ridge is *competitive with* simple baselines, not better than
+them. On a series where most month-to-month movement is genuinely unpredictable, that a
+3-month mean is hard to beat is a finding, not a failure.
+
+### Secondary: lag-shifted scorecard (approximate)
+
+119 origins, Aug 2013 → Jun 2026. Extends coverage by approximating each origin from
+current-vintage data truncated by declared publication lags.
+
+| model | n | MAE | RMSE | bias | cover |
+|---|---|---|---|---|---|
+| **ridge** | 119 | **48.6** | **65.3** | +9.0 | 71% |
+| random_walk | 119 | 56.0 | 77.6 | +3.5 | 78% |
+| mean_3m | 119 | 69.0 | 94.4 | +6.3 | 76% |
+| mean_6m | 119 | 63.6 | 83.8 | +11.2 | 78% |
+| drift | 119 | 56.3 | 78.1 | +5.9 | 79% |
+
+**Read this one sceptically — that is why it is secondary.** It uses *revised* figures
+where a real forecaster had first prints, so it cannot measure revision effects. Ridge
+scores MAE 48.6 here against 62.1 on the honest scorecard: **the approximation makes the
+model look 22% better than it is.** That gap is itself the argument for building
+vintage-aware storage in the first place.
+
+### The bias fix, and the line I did not cross
+
+The first honest backtest put ridge at **MAE 67.5 with +18.7k bias** — barely better than
+the random walk. Diagnosis: a ridge intercept is the training mean, and 72% of usable
+history predates 2020 averaging **+180k**, against **+54k since 2024**. The model was
+anchored to a labour market that no longer exists.
+
+The fix was a 12-month trailing-mean term giving it a local anchor — added on that
+structural argument, before seeing whether it helped. It did: **bias +18.7k → +3.0k**,
+MAE 67.5 → 62.1.
+
+What was **not** done: tune the training window, the exclusion boundary, or the
+regularisation by watching backtest error. Choosing a hyperparameter by test-set
+performance is the same leak the vintage design exists to prevent, and would make every
+number above meaningless. A second candidate change (exponential sample weighting) was
+dropped for exactly this reason — once the diagnosed bias was fixed, it had no
+justification left except hoping the score improved.
+
+### Explaining the forecast
+
+The brief's third requirement — *understand why* — imposes a stricter constraint than it
+first appears: the prose must be **derived from the model's arithmetic**, not written
+alongside it. A narrative composed independently can drift from the numbers it describes
+and nobody would notice.
+
+This is the reason ridge was chosen over a stronger black box. A linear model's
+prediction decomposes exactly into an intercept plus one `coefficient × feature`
+contribution per term, so each sentence is generated from a structured `Driver`, and the
+claim that those contributions sum to the reported forecast is **verified rather than
+trusted** — `ridge.py` asserts the identity on every call, and the explainer raises
+`ExplanationError` if the drivers imply an impossible intercept.
+
+Three things the explanation deliberately will not do:
+
+- **Claim the model is accurate.** Measured accuracy is passed in as a `ScoreCard` and
+  the wording is driven by whether the model actually beat its baseline — so a losing
+  model describes itself as losing. Nothing is hardcoded, so the prose cannot go stale
+  when the backtest changes.
+- **Present a driver as causal.** Coefficients are associations fitted on ~155 months.
+- **Hide what it doesn't know.** Stale inputs, the excluded regime, and the measured
+  interval limitation are all surfaced as caveats.
+
+Output is a structured `Explanation`, never a string: tests assert on fields, the script
+renders text, and an HTTP layer could serialise it without reparsing prose.
+
+### Metrics, and one that is deliberately absent
+
+MAE in thousands of jobs is primary — same units as the forecast, directly interpretable
+against a print that runs around 100k. RMSE is always reported alongside because it can
+disagree, and here it does.
+
+**MAPE is excluded on purpose.** The target changes sign and passes near zero — recent
+prints include −1k, +11k and +22k. Percentage error against a near-zero denominator
+explodes, so MAPE would rank models by how well they dodged small-actual months.
+
+**Baselines.** Random walk, 3- and 6-month means, drift. *Not* seasonal naive: the series
+is already seasonally adjusted, so predicting "same as twelve months ago" would re-apply
+a pattern that has been removed — a wrong baseline, not a weak one.
+
+### Intervals: a measured, unfixed limitation
+
+Intervals are empirical quantiles of forward-chaining residuals, not model-implied
+variance, because payroll errors are not reliably normal. That avoids assuming a *shape* —
+but it still assumes error *dispersion* is stable between training history and the
+forecast month, and measurement says it is not:
+
+| scorecard | realised error sd | residual pool sd | ratio | coverage vs 80% |
+|---|---|---|---|---|
+| vintage | 87.9k | 118.3k | 0.74 | 85% (over) |
+| lag_shifted | 64.7k | 53.4k | 1.21 | 71% (under) |
+
+Width tracks the residual pool, so the two scorecards miss in **opposite directions** —
+which rules out a constant correction factor. A hypothesis that alpha selection was
+double-dipping (choosing the penalty on the same folds whose residuals build the
+interval) was tested and **refuted**: pinning alpha moved coverage by under one point.
+
+Left uncorrected deliberately. Fitting a residual window or scale factor against backtest
+coverage is the same test-set tuning refused above. The headline scorecard errs
+conservative at 85% against a nominal 80%, which is the safe direction; the under-covering
+case is confined to the approximate scorecard and is reported rather than papered over.
+
+**Still missing:** a published-consensus benchmark. Beating naive baselines shows the
+model is not trivial; matching professional consensus MAE would show it is good. That
+comparison needs consensus figures FRED does not carry.
+
+---
+
+## Roadmap
+
+- [x] **Ingestion** — `IngestionPort` + `FredAdapter`, vintage-aware, retry
+- [x] **Storage** — SQLite, three-part vintage key, idempotent upsert, per-series
+      checkpoints, `units.py` conversion choke point
+- [x] **Features** — calendar-month-mean aggregation behind a swappable rule,
+      vintage-safe differencing, point-in-time panel assembly
+- [x] **Forecast** — hand-rolled numpy ridge + four naive baselines behind one port
+- [x] **Evaluation** — walk-forward backtest, two scorecards
+- [x] **Explanation** — plain-English "why" generated from the model's own arithmetic,
+      with a consistency guard
+- [x] **CLI** — one `typer` entry point, four subcommands, `--json` output
+      (409 tests total)
+- [ ] Optional: FastAPI shim, Cloud Run
+
+### What I'd build next with another week
+
+1. **Weekly ADP nowcast.** The ADP release (`release_id=194`) carries 129 series,
+   including `ADPWNUSNERSA` — the same total private payroll target measured *weekly*,
+   plus weekly cuts by industry, establishment size and census division. ADP's own
+   high-frequency data on the exact target. One caveat to check first: the weekly series
+   currently ends `2026-05-16` against the monthly's `2026-06-01`, so it may lag rather
+   than lead.
+2. **Revision-momentum features.** The stored vintage history already supports this.
+   `USPRIV`/`PAYEMS` are revised twice with meaningful magnitude and BLS revisions are
+   known to be serially correlated. `ICSA`/`CCSA` revise by a near-mechanical +1k and
+   ADP has no intra-year revisions at all, so those carry nothing.
+3. **Additional timely indicators** — the Indeed Job Postings Index (daily),
+   `TEMPHELPS` (temporary help services, classically leading), and average weekly hours.
+4. **Vintage-aware feature store** with as-of caching, so a full backtest sweep does not
+   re-derive point-in-time features per origin.
+
+---
+
+## AI usage
+
+Every AI session used to build this is logged verbatim in [PROMPTS.md](PROMPTS.md),
+including dead ends and the prompts that produced wrong answers.
