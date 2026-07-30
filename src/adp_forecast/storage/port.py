@@ -17,24 +17,6 @@ from typing import Protocol, Sequence, runtime_checkable
 from ..domain import Observation
 
 
-# @dataclass(frozen=True, slots=True)
-# class IngestCheckpoint:
-#     """Record of the last completed ingest for one series.
-
-#     Attributes:
-#         series_id: The series this checkpoint describes.
-#         max_obs_date: Newest reference period stored, or ``None`` if the series held
-#             no observations.
-#         row_count: Rows written by that run.
-#         completed_at: When the run finished.
-#     """
-
-#     series_id: str
-#     max_obs_date: date | None
-#     row_count: int
-#     completed_at: datetime
-
-
 @runtime_checkable
 class StoragePort(Protocol):
     """Persistence for observations, release dates.
@@ -115,15 +97,6 @@ class StoragePort(Protocol):
                 scheduled future dates FRED returns.
         """
         ...
-
-# these are the read/write interface for that ingestion unread data, so they got scrapped.
-    # def record_checkpoint(self, checkpoint: IngestCheckpoint) -> None:
-    #     """Persist the checkpoint for a completed per-series ingest."""
-    #     ...
-
-    # def read_checkpoint(self, series_id: str) -> IngestCheckpoint | None:
-    #     """Return the stored checkpoint for a series, or ``None`` if never ingested."""
-    #     ...
 
     def count_observations(self, series_id: str | None = None) -> int:
         """Count stored observations, for one series or the whole store.

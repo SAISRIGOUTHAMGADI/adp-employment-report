@@ -376,46 +376,7 @@ def test_releases_are_isolated_from_each_other(store):
 
     assert store.read_release_dates(194) == [date(2026, 7, 1)]
     assert store.read_release_dates(50) == [date(2026, 7, 2)]
-
-
-# # -- checkpoints ---------------------------------------------------------------
-
-
-# def test_checkpoint_round_trips(store):
-#     checkpoint = IngestCheckpoint(
-#         series_id="USPRIV",
-#         max_obs_date=date(2026, 6, 1),
-#         row_count=2082,
-#         completed_at=FETCHED_AT,
-#     )
-#     store.record_checkpoint(checkpoint)
-
-#     stored = store.read_checkpoint("USPRIV")
-#     assert stored == checkpoint
-
-
-# def test_checkpoint_is_overwritten_not_duplicated(store):
-#     """One checkpoint per series: keyed on series_id alone, by design."""
-#     store.record_checkpoint(IngestCheckpoint("USPRIV", date(2026, 5, 1), 10, FETCHED_AT))
-#     store.record_checkpoint(IngestCheckpoint("USPRIV", date(2026, 6, 1), 20, FETCHED_AT))
-
-#     stored = store.read_checkpoint("USPRIV")
-#     assert stored is not None
-#     assert stored.row_count == 20
-#     assert stored.max_obs_date == date(2026, 6, 1)
-
-
-# def test_checkpoint_tolerates_a_series_with_no_observations(store):
-#     store.record_checkpoint(IngestCheckpoint("USPRIV", None, 0, FETCHED_AT))
-
-#     stored = store.read_checkpoint("USPRIV")
-#     assert stored is not None
-#     assert stored.max_obs_date is None
-
-
-# def test_unknown_checkpoint_is_none(store):
-#     assert store.read_checkpoint("NEVER_INGESTED") is None
-
+    
 
 # -- persistence ---------------------------------------------------------------
 

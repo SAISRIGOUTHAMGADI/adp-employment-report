@@ -74,20 +74,3 @@ CREATE TABLE IF NOT EXISTS release_dates (
     PRIMARY KEY (release_id, release_date),
     CHECK (release_date LIKE '____-__-__')
 ) WITHOUT ROWID;
-
-
--- we are not even querying this so scrapped
--- -- Per-series ingest checkpoint, making a crashed run resumable.
--- --
--- -- Keyed on series_id alone: only the full vintage history is ever persisted, and
--- -- "current vintage" is a filter on it (realtime_end = '9999-12-31') rather than a
--- -- second dataset. There is therefore exactly one ingest per series worth
--- -- checkpointing, and a mode column would imply two datasets that do not exist.
--- CREATE TABLE IF NOT EXISTS ingest_runs (
---     series_id    TEXT    NOT NULL PRIMARY KEY,
---     max_obs_date TEXT,                          -- newest reference period stored
---     row_count    INTEGER NOT NULL,              -- rows written by that run
---     completed_at TEXT    NOT NULL,
-
---     CHECK (row_count >= 0)
--- ) WITHOUT ROWID;
