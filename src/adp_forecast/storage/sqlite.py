@@ -20,7 +20,7 @@ from typing import Final, Iterable, Sequence
 from ..domain import CURRENT_VINTAGE_SENTINEL, Observation
 from ..exceptions import StorageIntegrityError, VintageValidationError
 from ..logging_config import get_logger
-from .port import IngestCheckpoint
+#from .port import IngestCheckpoint
 
 _LOG = get_logger(__name__)
 

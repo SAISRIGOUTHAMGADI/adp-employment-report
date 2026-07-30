@@ -4,7 +4,7 @@ Import the port in downstream code. ``SqliteStorage`` is re-exported so entry po
 have one obvious place to construct it.
 """
 
-from .port import IngestCheckpoint, StoragePort
+from .port import StoragePort
 from .sqlite import SqliteStorage
 
-__all__ = ["IngestCheckpoint", "SqliteStorage", "StoragePort"]
+__all__ = ["SqliteStorage", "StoragePort"]

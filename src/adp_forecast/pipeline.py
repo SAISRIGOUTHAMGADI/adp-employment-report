@@ -19,7 +19,7 @@ from .domain import Observation
 from .exceptions import AdpForecastError
 from .ingestion.port import IngestionPort, ReleaseCalendarPort
 from .logging_config import get_logger
-from .storage.port import IngestCheckpoint, StoragePort
+from .storage.port import StoragePort
 
 _LOG = get_logger(__name__)
 
@@ -187,14 +187,6 @@ class IngestService:
             return SeriesIngestResult(series_id, 0, None, error=exc)
 
         max_obs_date = _max_observation_date(observations)
-        self._storage.record_checkpoint(
-            IngestCheckpoint(
-                series_id=series_id,
-                max_obs_date=max_obs_date,
-                row_count=rows_written,
-                completed_at=_now(),
-            )
-        )
         return SeriesIngestResult(series_id, rows_written, max_obs_date)
 
     def _ingest_release_dates(self, release_id: int) -> int:
