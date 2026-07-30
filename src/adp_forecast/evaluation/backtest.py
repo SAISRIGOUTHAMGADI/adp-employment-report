@@ -43,6 +43,7 @@ from ..logging_config import get_logger
 from ..storage.port import StoragePort
 from ..units import to_thousands
 from .metrics import ScoreCard, score
+from .significance import ComparisonResult, Loss, diebold_mariano
 
 _LOG = get_logger(__name__)
 
@@ -119,6 +120,47 @@ class BacktestReport:
     def best_by_mae(self) -> str:
         """Name of the model with the lowest MAE."""
         return min(self.scores, key=lambda name: self.scores[name].mae)
+
+    def errors(self, model: str) -> list[float]:
+        """Per-origin errors (``forecast - actual``) for one model, in origin order.
+
+        Only the common origins, so any two models' error series are paired
+        element-for-element — which is what makes a paired significance test valid.
+
+        Args:
+            model: Registered model name.
+        """
+        common = set(self.common_origins)
+        return [
+            outcome.points[model] - outcome.actual
+            for outcome in self.outcomes
+            if outcome.origin in common
+        ]
+
+    def compare(
+        self,
+        model: str,
+        baseline: str,
+        *,
+        loss: Loss = Loss.ABSOLUTE,
+    ) -> ComparisonResult:
+        """Test whether ``model`` is genuinely more accurate than ``baseline``.
+
+        A difference in MAE is not evidence of a better model until it survives a test.
+        This runs Diebold-Mariano on the paired per-origin losses.
+
+        Args:
+            model: Model under test.
+            baseline: Model compared against.
+            loss: Loss function -- absolute corresponds to MAE, squared to RMSE.
+        """
+        return diebold_mariano(
+            self.errors(model),
+            self.errors(baseline),
+            model_name=model,
+            baseline_name=baseline,
+            loss=loss,
+        )
 
     def relative_mae(self, model: str, versus: str) -> float:
         """Percentage MAE improvement of ``model`` over ``versus``.

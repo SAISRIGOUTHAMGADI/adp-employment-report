@@ -17,7 +17,7 @@ from datetime import date, datetime
 from typing import Any, Sequence
 
 from ..domain import Observation
-from ..evaluation import BacktestReport, Scorecard
+from ..evaluation import BacktestReport, Loss, Scorecard
 from ..explanation import Explanation
 from ..forecast import Forecast
 from ..units import canonical_unit_label, observation_in_thousands
@@ -124,8 +124,44 @@ def render_backtest(report: BacktestReport) -> str:
         )
 
     lines.append(f"\nbest MAE: {report.best_by_mae()}")
+    lines.extend(_render_significance(report))
     lines.extend(_render_skips(report))
     return "\n".join(lines)
+
+
+def _render_significance(report: BacktestReport) -> list[str]:
+    """Report whether the best model's margin survives a paired significance test.
+
+    Printed alongside the table because a ranking without it invites the reader to treat
+    a 2% MAE gap on 39 observations as a result.
+    """
+    best = report.best_by_mae()
+    rivals = [name for name in report.models if name != best]
+    if not rivals:
+        return []
+
+    lines = [
+        "",
+        f"Is {best}'s margin real? Diebold-Mariano, paired on the same origins:",
+        f"  {'vs':14}{'loss':10}{'diff':>9}{'t':>8}{'p':>8}  verdict",
+        "  " + "-" * 74,
+    ]
+    for rival in rivals:
+        for loss in (Loss.ABSOLUTE, Loss.SQUARED):
+            try:
+                result = report.compare(best, rival, loss=loss)
+            except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                lines.append(f"  {rival:14}{loss.value:10}  not testable: {exc}")
+                continue
+            marker = "significant" if result.is_significant else "indistinguishable"
+            lines.append(
+                f"  {rival:14}{loss.value:10}{result.mean_differential:>+9.1f}"
+                f"{result.statistic:>8.2f}{result.p_value:>8.3f}  {marker}"
+            )
+    lines.append(
+        "  (negative diff favours " + best + "; p < 0.05 would mean the gap is real)"
+    )
+    return lines
 
 
 def _render_skips(report: BacktestReport) -> list[str]:

@@ -3,7 +3,7 @@
 A command-line tool that tracks the monthly [ADP National Employment
 Report](https://adpemploymentreport.com/) and forecasts the next print.
 
-**Build status:** complete. One CLI, four subcommands, 410 tests.
+**Build status:** complete. One CLI, four subcommands, 440 tests.
 
 ---
 
@@ -96,7 +96,7 @@ costs ~2s, and a cutoff would miss a revision to an older observation arriving a
 ### Tests and linting
 
 ```bash
-pytest                      # everything (410 tests)
+pytest                      # everything (440 tests)
 pytest -m "not live"        # offline only, no API key needed
 flake8 src tests scripts
 ```
@@ -399,12 +399,40 @@ number ADP **actually printed that morning**, not today's revised figure.
 | mean_6m | 39 | 66.9 | 88.1 | +15.5 | 95% | 95% | +15pp | 309k |
 | drift | 39 | 67.1 | 84.7 | +7.4 | 92% | 97% | +17pp | 382k |
 
-**What this does and does not show.** Ridge has the best MAE, beating the random walk by
-6.3% and the 3-month mean by 2.0%. But 2% on 39 observations is noise, and **ridge has
-the worst RMSE of any model** — it trades many small errors for a few large ones. The
-defensible claim is that ridge is *competitive with* simple baselines, not better than
-them. On a series where most month-to-month movement is genuinely unpredictable, that a
-3-month mean is hard to beat is a finding, not a failure.
+**Ridge has the best MAE — and that means nothing.** It beats the random walk by 6.3%
+and the 3-month mean by 2.0%, but a ranking is not a result until it survives a test.
+
+Diebold-Mariano, paired on the same origins, one-step-ahead, with the
+Harvey-Leybourne-Newbold small-sample correction:
+
+| ridge vs | loss | mean diff | t | p | verdict |
+|---|---|---|---|---|---|
+| random_walk | absolute | −4.2 | −0.49 | 0.624 | indistinguishable |
+| random_walk | squared | +674.4 | 0.38 | 0.705 | indistinguishable |
+| **mean_3m** | **absolute** | **−1.3** | **−0.15** | **0.884** | **indistinguishable** |
+| mean_3m | squared | +578.2 | 0.28 | 0.783 | indistinguishable |
+| mean_6m | absolute | −4.8 | −0.58 | 0.567 | indistinguishable |
+| drift | absolute | −5.0 | −0.60 | 0.552 | indistinguishable |
+
+**Not one comparison is significant.** At p = 0.884, if ridge and a 3-month mean were
+genuinely identical forecasters you would see a gap this large or larger 88% of the time
+purely from which 39 months you happened to land on.
+
+The result cuts both ways, which is what makes it credible rather than convenient:
+ridge's apparently *worse* RMSE is equally not real (p = 0.705–0.783). Neither the win
+nor the loss survives contact with a significance test.
+
+So the honest claim is narrow and stated deliberately: **on 39 vintage-correct origins,
+this model is statistically indistinguishable from a three-month moving average.** On a
+series where most month-to-month movement is genuinely unpredictable, that a simple mean
+is hard to beat is a finding about ADP, not a failure of the model — and it is the reason
+work stopped here rather than continuing to chase a number that the measurement cannot
+resolve.
+
+The test is `adp-forecast backtest` output, not a claim in prose: Student's *t* is
+implemented in [`significance.py`](src/adp_forecast/evaluation/significance.py) rather
+than imported, validated against published critical values, and would have flagged a real
+difference had one existed.
 
 ### Secondary: lag-shifted scorecard (approximate)
 
@@ -524,7 +552,7 @@ comparison needs consensus figures FRED does not carry.
 - [x] **Explanation** — plain-English "why" generated from the model's own arithmetic,
       with a consistency guard
 - [x] **CLI** — one `typer` entry point, four subcommands, `--json` output
-      (410 tests total)
+      (440 tests total)
 - [ ] Optional: FastAPI shim, Cloud Run
 
 ### What I'd build next with another week
@@ -552,14 +580,14 @@ The full session log is included in two formats:
 
 | File | What it is |
 |---|---|
-| [`prompts/session-transcript.jsonl`](prompts/session-transcript.jsonl) | The **raw Claude Code log** — 1,082 records, byte-for-byte except for a redacted API key. |
+| [`prompts/session-transcript.jsonl`](prompts/session-transcript.jsonl) | The **raw Claude Code log** — every record, byte-for-byte except for a redacted API key. |
 | [`prompts/session-transcript.md`](prompts/session-transcript.md) | The same records rendered readable: every prompt, response, tool call and result, in order. |
 | [`PROMPTS.md`](PROMPTS.md) | A curated turn-by-turn index — what was asked, what came back, what I did with it. Start here. |
 
 Both exports come from [`tools/export_transcript.py`](tools/export_transcript.py), which
 is committed so the transformation is inspectable. The only alteration is secret
 redaction: a live FRED API key leaked into an HTTP error message that echoed the request
-URL, and 7 occurrences were replaced. Deliberately-invalid keys used during the session
+URL, and every occurrence was replaced. Deliberately-invalid keys used during the session
 to probe error handling are preserved — that probe is part of the story.
 
 Nothing else is removed. The dead ends are all there: an hour lost to a nonexistent API

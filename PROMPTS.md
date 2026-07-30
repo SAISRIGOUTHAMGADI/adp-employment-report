@@ -8,14 +8,14 @@ shaped the design.
 
 | File | What it is |
 |---|---|
-| **[`prompts/session-transcript.jsonl`](prompts/session-transcript.jsonl)** | The **raw Claude Code session log**, 1,082 records, byte-for-byte except for a redacted API key. Highest fidelity. |
+| **[`prompts/session-transcript.jsonl`](prompts/session-transcript.jsonl)** | The **raw Claude Code session log** — every record, byte-for-byte except for a redacted API key. Highest fidelity. |
 | **[`prompts/session-transcript.md`](prompts/session-transcript.md)** | The same records rendered readable — every prompt, response, tool call and tool result in order. |
 | **This file** | A curated index: turn-by-turn summary of what was asked, what came back, and what I did with it. Start here, then dig into the raw log for anything you want to verify. |
 
 Both exports are produced by [`tools/export_transcript.py`](tools/export_transcript.py),
 which is committed so you can see exactly what was and was not altered. The only change
 is secret redaction: a live FRED API key leaked into an HTTP error message that echoed
-the request URL, and 7 occurrences were replaced. The deliberately-invalid keys used
+the request URL, and every occurrence was replaced. The deliberately-invalid keys used
 during the session to probe error handling are preserved, because that probe is part of
 the story. Nothing else is removed.
 
@@ -742,6 +742,33 @@ decision back in turn 1.
 **What I did with it:** **Used as-is.** 30 CLI tests, including one asserting that the
 text and JSON renderings describe the same forecast — two renderings of one typed object
 should not be able to diverge.
+
+---
+
+## Turn 16 — Significance testing
+
+**My prompt:**
+
+> we should also do 4. Cause that basically answers -----> ridge's tiny edge, 62.1 versus
+> 63.4, a real difference or just luck from which 39 months you happened to land on? lol
+
+**What the model did:** Implemented Diebold-Mariano — the standard paired test for
+forecast accuracy — including Student's *t* from scratch via the regularised incomplete
+beta, rather than pulling in scipy for one function. Validated against published critical
+values at seven degrees of freedom, including the df=38 this project's 39 origins produce.
+
+The answer: **luck.** Ridge vs `mean_3m` on absolute loss gives p = 0.884. Not one of the
+eight comparisons is significant, and ridge's apparently *worse* RMSE is equally not real
+(p = 0.705–0.783). Neither the win nor the loss survives.
+
+Two of its own tests failed on the first run because it had constructed degenerate data —
+a constant loss differential has zero variance and correctly yields no statistic. It fixed
+the tests rather than the code, and added a test pinning that behaviour.
+
+**What I did with it:** **Used as-is.** This is the number I actually wanted from the
+start. "Competitive, not better" was an impression; "statistically indistinguishable at
+p = 0.884" is a fact, and it retroactively justifies the decision several turns earlier to
+stop tuning.
 
 ---
 

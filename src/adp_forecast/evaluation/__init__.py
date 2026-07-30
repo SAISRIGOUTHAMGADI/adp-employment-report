@@ -1,6 +1,12 @@
 """Evaluation layer: walk-forward backtesting and accuracy metrics."""
 
 from .backtest import BacktestReport, Backtester, OriginOutcome, Scorecard
+from .significance import (
+    ALPHA,
+    ComparisonResult,
+    Loss,
+    diebold_mariano,
+)
 from .metrics import (
     ScoreCard,
     directional_accuracy,
@@ -12,7 +18,11 @@ from .metrics import (
 )
 
 __all__ = [
+    "ALPHA",
     "BacktestReport",
+    "ComparisonResult",
+    "Loss",
+    "diebold_mariano",
     "Backtester",
     "OriginOutcome",
     "ScoreCard",
