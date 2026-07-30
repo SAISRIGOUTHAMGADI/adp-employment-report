@@ -62,7 +62,7 @@ _SELECT_OBSERVATION_COLUMNS: Final[str] = (
 
 
 class SqliteStorage:
-    """Stores observations, release dates and ingest checkpoints in SQLite.
+    """Stores observations, release dates in SQLite.
 
     One instance owns one connection. Not thread-safe: ``sqlite3`` connections are
     bound to their creating thread by default, so construct one per thread.

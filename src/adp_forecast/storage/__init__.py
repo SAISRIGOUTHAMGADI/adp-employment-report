@@ -1,4 +1,4 @@
-"""Storage layer: persisting observations, release dates and ingest checkpoints.
+"""Storage layer: persisting observations, release dates.
 
 Import the port in downstream code. ``SqliteStorage`` is re-exported so entry points
 have one obvious place to construct it.
