@@ -47,14 +47,14 @@ VALUES (?, ?)
 ON CONFLICT (release_id, release_date) DO NOTHING
 """
 
-_UPSERT_CHECKPOINT: Final[str] = """
-INSERT INTO ingest_runs (series_id, max_obs_date, row_count, completed_at)
-VALUES (?, ?, ?, ?)
-ON CONFLICT (series_id) DO UPDATE SET
-    max_obs_date = excluded.max_obs_date,
-    row_count    = excluded.row_count,
-    completed_at = excluded.completed_at
-"""
+# _UPSERT_CHECKPOINT: Final[str] = """
+# INSERT INTO ingest_runs (series_id, max_obs_date, row_count, completed_at)
+# VALUES (?, ?, ?, ?)
+# ON CONFLICT (series_id) DO UPDATE SET
+#     max_obs_date = excluded.max_obs_date,
+#     row_count    = excluded.row_count,
+#     completed_at = excluded.completed_at
+# """
 
 _SELECT_OBSERVATION_COLUMNS: Final[str] = (
     "series_id, obs_date, realtime_start, realtime_end, value, source, fetched_at"
@@ -250,44 +250,45 @@ class SqliteStorage:
         cursor = self._connection.execute(query, params)
         return [date.fromisoformat(row["release_date"]) for row in cursor.fetchall()]
 
-    # -- checkpoints -------------------------------------------------------
+# Scrapping cause we don't need the ingestion runs one as it only held data not queryable
+    # # -- checkpoints -------------------------------------------------------
 
-    def record_checkpoint(self, checkpoint: IngestCheckpoint) -> None:
-        """Persist the checkpoint for a completed per-series ingest."""
-        self._connection.execute(
-            _UPSERT_CHECKPOINT,
-            (
-                checkpoint.series_id,
-                checkpoint.max_obs_date.isoformat() if checkpoint.max_obs_date else None,
-                checkpoint.row_count,
-                checkpoint.completed_at.isoformat(),
-            ),
-        )
-        _LOG.debug(
-            "Checkpointed %s: %d rows through %s",
-            checkpoint.series_id,
-            checkpoint.row_count,
-            checkpoint.max_obs_date,
-        )
+    # def record_checkpoint(self, checkpoint: IngestCheckpoint) -> None:
+    #     """Persist the checkpoint for a completed per-series ingest."""
+    #     self._connection.execute(
+    #         _UPSERT_CHECKPOINT,
+    #         (
+    #             checkpoint.series_id,
+    #             checkpoint.max_obs_date.isoformat() if checkpoint.max_obs_date else None,
+    #             checkpoint.row_count,
+    #             checkpoint.completed_at.isoformat(),
+    #         ),
+    #     )
+    #     _LOG.debug(
+    #         "Checkpointed %s: %d rows through %s",
+    #         checkpoint.series_id,
+    #         checkpoint.row_count,
+    #         checkpoint.max_obs_date,
+    #     )
 
-    def read_checkpoint(self, series_id: str) -> IngestCheckpoint | None:
-        """Return the stored checkpoint for a series, or ``None``."""
-        cursor = self._connection.execute(
-            "SELECT series_id, max_obs_date, row_count, completed_at "
-            "FROM ingest_runs WHERE series_id = ?",
-            (series_id,),
-        )
-        row = cursor.fetchone()
-        if row is None:
-            return None
-        return IngestCheckpoint(
-            series_id=row["series_id"],
-            max_obs_date=(
-                date.fromisoformat(row["max_obs_date"]) if row["max_obs_date"] else None
-            ),
-            row_count=int(row["row_count"]),
-            completed_at=datetime.fromisoformat(row["completed_at"]),
-        )
+    # def read_checkpoint(self, series_id: str) -> IngestCheckpoint | None:
+    #     """Return the stored checkpoint for a series, or ``None``."""
+    #     cursor = self._connection.execute(
+    #         "SELECT series_id, max_obs_date, row_count, completed_at "
+    #         "FROM ingest_runs WHERE series_id = ?",
+    #         (series_id,),
+    #     )
+    #     row = cursor.fetchone()
+    #     if row is None:
+    #         return None
+    #     return IngestCheckpoint(
+    #         series_id=row["series_id"],
+    #         max_obs_date=(
+    #             date.fromisoformat(row["max_obs_date"]) if row["max_obs_date"] else None
+    #         ),
+    #         row_count=int(row["row_count"]),
+    #         completed_at=datetime.fromisoformat(row["completed_at"]),
+    #     )
 
     # -- validation --------------------------------------------------------
 
