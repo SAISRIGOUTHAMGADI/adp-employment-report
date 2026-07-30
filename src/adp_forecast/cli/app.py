@@ -132,7 +132,7 @@ def forecast(
     model: str = typer.Option(
         DEFAULT_MODEL, "--model", "-m", help="Model to use."
     ),
-    drivers: int = typer.Option(3, "--drivers", min=1, help="Drivers to name."),
+    #drivers: int = typer.Option(3, "--drivers", min=1, help="Drivers to name."),
     with_accuracy: bool = typer.Option(
         False,
         "--with-accuracy",
@@ -140,7 +140,7 @@ def forecast(
     ),
     as_json: bool = typer.Option(
         False, "--json", help="Emit machine-readable JSON instead of prose."
-    ),
+    ), # kinda used for FAST API wrapper so I am gonna leave it here 
 ) -> None:
     """Forecast the next ADP print and explain the reasoning behind it."""
     if model not in MODEL_REGISTRY:
@@ -165,7 +165,7 @@ def forecast(
         explanation = explain_forecast(
             result,
             panel,
-            driver_count=drivers,
+            driver_count=3, # defaulted drivers
             accuracy=accuracy,
             baseline_accuracy=baseline_accuracy,
         )
