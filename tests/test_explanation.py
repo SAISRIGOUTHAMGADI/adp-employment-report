@@ -275,8 +275,26 @@ def test_accuracy_caveat_is_not_hardcoded():
     explanation = explain_forecast(forecast())
 
     caveat = explanation.caveats[0]
-    assert "scripts/backtest.py" in caveat
+    assert "adp-forecast backtest" in caveat
     assert "62,000" not in caveat
+
+
+def test_no_user_facing_text_points_at_the_deprecated_scripts():
+    """The scripts are shims; every instruction must name the CLI command instead.
+
+    A guard rather than a one-off fix: this exact string survived the CLI migration
+    because it lived in prose no test was reading.
+    """
+    from pathlib import Path
+
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    offenders = [
+        path.name
+        for path in source_root.rglob("*.py")
+        if "scripts/" in path.read_text()
+    ]
+
+    assert not offenders, f"stale scripts/ reference in: {offenders}"
 
 
 def test_supplied_accuracy_is_quoted_and_verdict_reflects_it():
