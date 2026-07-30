@@ -268,24 +268,187 @@ probing the API before writing code:
 
 ### Architecture
 
-Ports and adapters. Each layer depends on the *contract* above it, never on a concrete
-implementation:
+Ports and adapters. Every layer depends on a *contract*, never on a concrete
+implementation, so any adapter can be swapped without the layers above noticing.
 
+```mermaid
+flowchart TB
+    subgraph CLI["adp-forecast (typer)"]
+        direction LR
+        C1["ingest"]:::cmd
+        C2["history"]:::cmd
+        C3["forecast"]:::cmd
+        C4["backtest"]:::cmd
+    end
+
+    subgraph RENDER["cli/render.py: presentation only, computes nothing"]
+        R1["tables · prose · --json"]:::render
+    end
+
+    subgraph DOMAIN["domain.py: shared vocabulary, no dependencies"]
+        D1["Observation(series_id, date, value,<br/>realtime_start, realtime_end)"]:::dom
+        D2["MonthlyValue · MonthlyChange"]:::dom
+        D3["SeriesSpec · Frequency · SeriesRole"]:::dom
+    end
+
+    subgraph LAYERS["business layers"]
+        direction LR
+        F["features/<br/>panel assembly"]:::layer
+        M["forecast/<br/>ridge + baselines"]:::layer
+        E["evaluation/<br/>backtest + DM test"]:::layer
+        X["explanation/<br/>plain English"]:::layer
+    end
+
+    SP{{"StoragePort<br/>protocol"}}:::port
+    IP{{"IngestionPort<br/>ReleaseCalendarPort<br/>protocols"}}:::port
+
+    SQL["SqliteStorage<br/>adapter"]:::adapter
+    FRED["FredAdapter<br/>adapter"]:::adapter
+
+    DB[("adp.db<br/>observations · release_dates · ingest_runs")]:::store
+    API(["FRED REST API<br/>api.stlouisfed.org"]):::ext
+
+    CLI --> RENDER
+    CLI --> LAYERS
+    LAYERS -. "speak in" .-> DOMAIN
+    LAYERS --> SP
+    CLI -- "ingest only" --> IP
+    SP --> SQL --> DB
+    IP --> FRED --> API
+
+    classDef cmd fill:#1f6feb,stroke:#1f6feb,color:#fff
+    classDef render fill:#6e40c9,stroke:#6e40c9,color:#fff
+    classDef layer fill:#238636,stroke:#238636,color:#fff
+    classDef port fill:#9e6a03,stroke:#d29922,color:#fff
+    classDef adapter fill:#bf8700,stroke:#d29922,color:#000
+    classDef store fill:#8957e5,stroke:#8957e5,color:#fff
+    classDef ext fill:#656c76,stroke:#656c76,color:#fff
+    classDef dom fill:#1b4721,stroke:#238636,color:#fff
 ```
-                 ┌──────────────────────────────┐
-   CLI / API ───► │  service layer (typed objs)  │
-                 └──────────────┬───────────────┘
-      ┌─────────────┬───────────┴────┬──────────────┐
-      ▼             ▼                ▼              ▼
-  forecast      features         evaluation     explanation
-      └─────────────┴────────────────┴──────────────┘
-                          ▼
-                    StoragePort           (SQLite adapter)
-                          ▼
-                   IngestionPort          (FredAdapter)
-                          ▼
-                    FRED REST API
+
+The two `{{...}}` shapes are the only contracts that matter. `StoragePort` and
+`IngestionPort` are Python `Protocol`s, so `SqliteStorage` and `FredAdapter` conform
+structurally without importing anything from them. Replacing SQLite with Postgres, or FRED
+with a vendor feed, means writing one new adapter and changing no layer above it.
+
+#### `adp-forecast ingest`, step by step
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as user
+    participant CLI as cli/app.py
+    participant SVC as IngestService
+    participant FRED as FredAdapter
+    participant API as FRED API
+    participant ST as SqliteStorage
+    participant DB as adp.db
+
+    U->>CLI: adp-forecast ingest
+    CLI->>ST: open(data/adp.db)
+    CLI->>ST: initialise()
+    ST->>DB: apply schema.sql (CREATE TABLE IF NOT EXISTS)
+    Note over ST,DB: observations, release_dates, ingest_runs<br/>PK (series_id, obs_date, realtime_start)
+
+    CLI->>FRED: FredSettings.from_env() → validate FRED_API_KEY shape
+    CLI->>SVC: IngestService(source=FRED, storage=ST, calendar=FRED)
+    CLI->>SVC: run(start=2009-01-01)
+
+    loop for each of the 7 registered series
+        SVC->>FRED: fetch(series_id, start, all_vintages=True)
+        FRED->>API: GET /series/observations<br/>realtime_start=1776-07-04<br/>realtime_end=9999-12-31
+        Note over FRED,API: retry 5xx/timeout only, never 4xx<br/>exponential backoff + jitter<br/>paginate (100k obs / 10k release dates)
+        API-->>FRED: JSON, missing values as "."
+        FRED-->>SVC: list[Observation] with real vintage windows
+
+        SVC->>ST: upsert_observations(observations)
+        ST->>ST: reject display-only batches<br/>(every realtime_start == fetched_at)
+        ST->>DB: INSERT ... ON CONFLICT DO UPDATE
+        Note over ST,DB: idempotent; a revision closes an<br/>open window rather than duplicating
+        SVC->>ST: record_checkpoint(series, max_obs_date, rows)
+    end
+
+    SVC->>FRED: fetch_release_dates(release_id=194)
+    API-->>FRED: real ADP publication dates (incl. future ones)
+    SVC->>ST: upsert_release_dates(194, dates)
+    CLI-->>U: per-series table, 18,224 rows in ~2s
 ```
+
+A failing series is caught, logged and reported; the other six still land. It is
+checkpointed only on success, so a resumed run retries exactly what failed.
+
+#### `adp-forecast forecast`, step by step
+
+```mermaid
+flowchart TB
+    A["adp-forecast forecast"]:::cmd --> B["FeaturePanelBuilder.build(as_of=today)"]:::layer
+
+    subgraph PANEL["one snapshot, one vantage date"]
+        direction TB
+        B --> B1["read_observations(ADPMNUSNERSA, as_of)"]:::step
+        B1 --> B2["change_series(...) → target changes<br/>refuses cross-vintage subtraction"]:::guard
+        B --> B3["read_observations(each feature, as_of)"]:::step
+        B3 --> B4{"registry says<br/>weekly?"}:::dec
+        B4 -- yes --> B5["aggregate_to_monthly()<br/>calendar-month mean, min 2 weeks"]:::step
+        B4 -- no --> B6["monthly_values_from_monthly_observations()"]:::step
+        B5 --> B7["monthly_value_changes()"]:::step
+        B6 --> B7
+    end
+
+    B2 --> P["FeaturePanel<br/>target_month = month after newest known"]:::layer
+    B7 --> P
+
+    P --> D["build_design_matrix(panel, DEFAULT_TERMS)"]:::layer
+    D --> D1["reject any term whose lag is below<br/>its declared publication lag"]:::guard
+    D1 --> D2["drop rows in 2020-03 .. 2022-06"]:::step
+    D2 --> D3["X (n×10), y, x_next"]:::step
+
+    D3 --> R["RidgeForecaster"]:::layer
+    R --> R1["forward-chaining CV picks alpha<br/>never random k-fold"]:::step
+    R1 --> R2["standardise X, centre y, solve<br/>(XᵀX + αI)w = Xᵀy"]:::step
+    R2 --> R3["assert contributions reconstruct<br/>the prediction"]:::guard
+    R3 --> R4["interval from empirical<br/>residual quantiles"]:::step
+
+    R4 --> FC["Forecast(point, lower, upper, drivers[])"]:::layer
+    FC --> EX["explain_forecast()"]:::layer
+    EX --> EX1["verify drivers imply a<br/>plausible intercept"]:::guard
+    EX1 --> OUT["Explanation → render → text or JSON"]:::render
+
+    classDef cmd fill:#1f6feb,stroke:#1f6feb,color:#fff
+    classDef layer fill:#238636,stroke:#238636,color:#fff
+    classDef step fill:#21262d,stroke:#484f58,color:#e6edf3
+    classDef guard fill:#8b2e2e,stroke:#f85149,color:#fff
+    classDef dec fill:#9e6a03,stroke:#d29922,color:#fff
+    classDef render fill:#6e40c9,stroke:#6e40c9,color:#fff
+```
+
+The red boxes are the guards. Each one turns a silent-corruption bug into a raised
+exception: subtracting across vintages, using a figure that was not yet published, an
+explanation that describes a different number than the model produced.
+
+#### `adp-forecast backtest`, step by step
+
+```mermaid
+flowchart LR
+    A["adp-forecast backtest"]:::cmd --> B["read_release_dates(194, through=today)<br/>real dates, never a computed rule"]:::step
+    B --> C["for each past release date R"]:::step
+    C --> D["build_for_release(R)<br/>as_of = R − 1 day"]:::guard
+    D --> E["every model forecasts<br/>panel.target_month"]:::step
+    E --> F["actual = level diff read<br/>as_of R, the printed number"]:::guard
+    F --> G["keep only origins every<br/>model could forecast"]:::guard
+    G --> H["ScoreCard per model<br/>MAE · RMSE · bias · coverage"]:::layer
+    H --> I["Diebold-Mariano + HLN<br/>paired, per loss function"]:::layer
+
+    classDef cmd fill:#1f6feb,stroke:#1f6feb,color:#fff
+    classDef step fill:#21262d,stroke:#484f58,color:#e6edf3
+    classDef guard fill:#8b2e2e,stroke:#f85149,color:#fff
+    classDef layer fill:#238636,stroke:#238636,color:#fff
+```
+
+`as_of = R − 1 day` is the single most important line in the backtest. The snapshot at `R`
+already contains the month released that morning, so reading at `R` would hand every model
+its own answer and produce a spectacular, meaningless score.
+
 
 Two decisions worth naming:
 
