@@ -402,6 +402,42 @@ number ADP **actually printed that morning**, not today's revised figure.
 **Ridge has the best MAE — and that means nothing.** It beats the random walk by 6.3%
 and the 3-month mean by 2.0%, but a ranking is not a result until it survives a test.
 
+#### Why Diebold-Mariano
+
+The test compares two forecasters on the same data. Rather than comparing two MAE figures
+as if they were independent samples, it works on the **loss differential** — for each
+month, `loss(model error) − loss(baseline error)` — and asks whether its mean is
+distinguishable from zero.
+
+That framing matters because the comparison is **paired**. Both models forecast the same
+39 months from the same inputs, so when March is a hard month both miss it. Treating the
+two MAEs as independent throws away that correlation, which is exactly the information
+that makes the test able to detect a small but *consistent* edge. A model that beat the
+baseline by 1.3k every single month would be significant here; ridge doesn't, because its
+per-month differential swings wildly around that average.
+
+**Loss is a parameter, not a constant.** MAE and RMSE can rank models differently — and
+in the table above they do. Testing under absolute loss speaks to the MAE ranking, under
+squared loss to RMSE. Reporting only one would hide the disagreement.
+
+**Two small-sample corrections, because n = 39 is small.** The Harvey-Leybourne-Newbold
+adjustment shrinks the statistic, and it is compared against Student's *t* with 38 degrees
+of freedom rather than the normal. Without both, the test over-rejects — it would
+manufacture exactly the false confidence it exists to prevent.
+
+**One assumption worth stating:** the loss differential must be serially uncorrelated,
+which holds for one-step-ahead forecasts and is all this project produces. Longer horizons
+would need a HAC variance estimator, so `diebold_mariano` **raises on `horizon > 1`**
+rather than quietly returning an overconfident number.
+
+*t* is implemented in
+[`significance.py`](src/adp_forecast/evaluation/significance.py) via the regularised
+incomplete beta rather than imported — scipy is a ~40 MB dependency for one function in a
+project that otherwise installs in seconds — and is validated against published critical
+values at seven degrees of freedom, including the df = 38 these 39 origins produce.
+
+#### Results
+
 Diebold-Mariano, paired on the same origins, one-step-ahead, with the
 Harvey-Leybourne-Newbold small-sample correction:
 
@@ -423,16 +459,25 @@ ridge's apparently *worse* RMSE is equally not real (p = 0.705–0.783). Neither
 nor the loss survives contact with a significance test.
 
 So the honest claim is narrow and stated deliberately: **on 39 vintage-correct origins,
-this model is statistically indistinguishable from a three-month moving average.** On a
-series where most month-to-month movement is genuinely unpredictable, that a simple mean
-is hard to beat is a finding about ADP, not a failure of the model — and it is the reason
-work stopped here rather than continuing to chase a number that the measurement cannot
-resolve.
+this model is statistically indistinguishable from a three-month moving average.**
 
-The test is `adp-forecast backtest` output, not a claim in prose: Student's *t* is
-implemented in [`significance.py`](src/adp_forecast/evaluation/significance.py) rather
-than imported, validated against published critical values, and would have flagged a real
-difference had one existed.
+**What that does not mean.** A non-significant result is not proof the models are equal.
+With 39 observations the test has limited power, so it cannot rule out a genuine edge too
+small for this sample to see. The correct reading is *"no improvement has been
+demonstrated"* — not *"no improvement exists"*. Those are different claims and only the
+first is supported.
+
+That distinction is also the argument for stopping. If the measurement cannot resolve a
+difference this size, then any further tuning that appears to help is unfalsifiable — we
+would be selecting on noise and unable to tell. On a series where most month-to-month
+movement is genuinely unpredictable, a simple mean being hard to beat is a finding about
+ADP, not a failure of the model.
+
+Every figure above is `adp-forecast backtest` output rather than a claim in prose, and the
+test would have flagged a real difference had one existed — a synthetic case with a
+consistent edge is asserted to come back significant in
+[`tests/test_significance.py`](tests/test_significance.py), so a non-result here is
+informative rather than a broken test.
 
 ### Secondary: lag-shifted scorecard (approximate)
 
