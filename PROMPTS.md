@@ -4,6 +4,21 @@ Complete log of AI usage on this project. Not sanitised — the dead ends, the w
 answers and the corrections are all here, because they are the parts that actually
 shaped the design.
 
+## Two formats, both included
+
+| File | What it is |
+|---|---|
+| **[`prompts/session-transcript.jsonl`](prompts/session-transcript.jsonl)** | The **raw Claude Code session log**, 1,082 records, byte-for-byte except for a redacted API key. Highest fidelity. |
+| **[`prompts/session-transcript.md`](prompts/session-transcript.md)** | The same records rendered readable — every prompt, response, tool call and tool result in order. |
+| **This file** | A curated index: turn-by-turn summary of what was asked, what came back, and what I did with it. Start here, then dig into the raw log for anything you want to verify. |
+
+Both exports are produced by [`tools/export_transcript.py`](tools/export_transcript.py),
+which is committed so you can see exactly what was and was not altered. The only change
+is secret redaction: a live FRED API key leaked into an HTTP error message that echoed
+the request URL, and 7 occurrences were replaced. The deliberately-invalid keys used
+during the session to probe error handling are preserved, because that probe is part of
+the story. Nothing else is removed.
+
 **Tool:** Claude Code (Opus 5), Claude Code desktop app on macOS.
 **Session 1:** 2026-07-30. Continuous session covering data verification, architecture
 decisions, and the ingestion layer.

@@ -3,7 +3,7 @@
 A command-line tool that tracks the monthly [ADP National Employment
 Report](https://adpemploymentreport.com/) and forecasts the next print.
 
-**Build status:** complete. One CLI, four subcommands, 409 tests.
+**Build status:** complete. One CLI, four subcommands, 410 tests.
 
 ---
 
@@ -96,7 +96,7 @@ costs ~2s, and a cutoff would miss a revision to an older observation arriving a
 ### Tests and linting
 
 ```bash
-pytest                      # everything (409 tests)
+pytest                      # everything (410 tests)
 pytest -m "not live"        # offline only, no API key needed
 flake8 src tests scripts
 ```
@@ -123,6 +123,34 @@ truth; no series ID is hardcoded anywhere else.
 | `PAYEMS` | feature | Monthly | 1 | Thous. | Total nonfarm. Carried so `PAYEMS − USPRIV` yields government payrolls free. |
 | `UNRATE` | feature | Monthly | 1 | Percent | Unemployment rate. Coincident not leading; retained as a level check. |
 | `JTSJOL` | feature | Monthly | **2** | Thous. | JOLTS job openings — labour demand. Published a month later than everything else. |
+
+### What is forecast, and what is not
+
+The brief asks for "the next set of numbers". ADP publishes more than one, so this is a
+scope decision rather than an oversight. Counting what is actually in the release
+(`release_id=194`, verified live):
+
+| What ADP publishes | Series in the release | Forecast here |
+|---|---|---|
+| Total private employment — **the headline** | 5 | **Yes** — `ADPMNUSNERSA`, monthly SA |
+| By industry | 68 | No |
+| By census division | 36 | No |
+| By establishment size | 20 | No |
+| Pay growth (job-stayers vs job-changers) | **0 — not carried on FRED** | No |
+
+**Why the headline only.** It is the number the report is known by, the one wire services
+lead with, and the one every consensus forecast is quoted against — so it is the only
+figure with an external benchmark to be judged by. The 124 breakdown series are the same
+modelling problem repeated with thinner data per cut; forecasting them would multiply
+runtime and surface area without demonstrating anything the headline does not.
+
+Pay growth is a genuinely different target, and it is **not available on FRED at all** —
+ingesting it would mean scraping the ADP site, a second adapter and a second data
+contract. `IngestionPort` is the seam that would make that additive rather than invasive,
+but it was out of scope for this build.
+
+The architecture does not hard-code this choice. `SeriesRole.TARGET` is a registry
+attribute, so pointing the model at an industry cut is a registry edit, not a code change.
 
 ### Data facts that drive the design
 
@@ -496,7 +524,7 @@ comparison needs consensus figures FRED does not carry.
 - [x] **Explanation** — plain-English "why" generated from the model's own arithmetic,
       with a consistency guard
 - [x] **CLI** — one `typer` entry point, four subcommands, `--json` output
-      (409 tests total)
+      (410 tests total)
 - [ ] Optional: FastAPI shim, Cloud Run
 
 ### What I'd build next with another week
@@ -520,5 +548,21 @@ comparison needs consensus figures FRED does not carry.
 
 ## AI usage
 
-Every AI session used to build this is logged verbatim in [PROMPTS.md](PROMPTS.md),
-including dead ends and the prompts that produced wrong answers.
+The full session log is included in two formats:
+
+| File | What it is |
+|---|---|
+| [`prompts/session-transcript.jsonl`](prompts/session-transcript.jsonl) | The **raw Claude Code log** — 1,082 records, byte-for-byte except for a redacted API key. |
+| [`prompts/session-transcript.md`](prompts/session-transcript.md) | The same records rendered readable: every prompt, response, tool call and result, in order. |
+| [`PROMPTS.md`](PROMPTS.md) | A curated turn-by-turn index — what was asked, what came back, what I did with it. Start here. |
+
+Both exports come from [`tools/export_transcript.py`](tools/export_transcript.py), which
+is committed so the transformation is inspectable. The only alteration is secret
+redaction: a live FRED API key leaked into an HTTP error message that echoed the request
+URL, and 7 occurrences were replaced. Deliberately-invalid keys used during the session
+to probe error handling are preserved — that probe is part of the story.
+
+Nothing else is removed. The dead ends are all there: an hour lost to a nonexistent API
+host, a nine-agent research fan-out that got killed for burning tokens, a cost estimate
+wrong by four orders of magnitude, and a model that lost to a three-month moving average
+before being diagnosed and fixed.
