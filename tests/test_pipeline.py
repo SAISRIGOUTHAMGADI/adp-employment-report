@@ -86,7 +86,13 @@ def vintage_observation(
 
 @pytest.fixture
 def store():
+    """An initialised in-memory store.
+
+    IngestService no longer applies the schema itself, so the caller owns that step,
+    exactly as the CLI does in `_with_storage()` before constructing the service.
+    """
     with SqliteStorage(":memory:") as instance:
+        instance.initialise()
         yield instance
 
 
@@ -127,8 +133,22 @@ def test_run_persists_every_series(store, two_series):
     assert store.count_observations("USPRIV") == 1
 
 
-def test_run_initialises_the_schema(store, two_series):
-    """A fresh store must be usable without a separate migration step."""
+def test_run_requires_an_initialised_store(two_series):
+    """The service assumes a ready schema; it does not apply DDL itself.
+
+    Pins the contract so the responsibility stays with the caller rather than drifting
+    back into the service.
+    """
+    source = FakeSource(observations=two_series)
+
+    with SqliteStorage(":memory:") as bare:
+        report = IngestService(source, bare).run(series_ids=[TARGET_SERIES_ID])
+
+        assert not report.succeeded
+        assert "no such table" in str(report.failures[0].error)
+
+
+def test_run_persists_into_an_initialised_store(store, two_series):
     source = FakeSource(observations=two_series)
 
     IngestService(source, store).run(series_ids=[TARGET_SERIES_ID])

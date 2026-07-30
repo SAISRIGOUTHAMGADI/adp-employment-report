@@ -146,18 +146,18 @@ def test_history_respects_the_count(database):
     assert short.stdout.count("\n") < long.stdout.count("\n")
 
 
-def test_history_accepts_any_registered_series(database):
-    result = invoke(database, "history", "--series", "ICSA", "-n", "3")
+def test_history_always_shows_the_target_series(database):
+    """`--series` was removed; history is fixed to the forecast target."""
+    result = invoke(database, "history", "-n", "3")
 
     assert result.exit_code == 0
-    assert "Initial jobless claims" in result.stdout
+    assert "ADP private payrolls" in result.stdout
 
 
-def test_history_rejects_an_unknown_series(database):
-    result = invoke(database, "history", "--series", "NOPE")
-
-    assert result.exit_code == 2
-    assert "Unknown series" in result.output
+def test_history_has_no_series_option(database):
+    """Pins the narrower surface so the option is not reintroduced silently."""
+    assert invoke(database, "history", "--series", "ICSA").exit_code == 2
+    assert "--series" not in invoke(database, "history", "--help").stdout
 
 
 def test_history_rejects_a_zero_count(database):
@@ -197,11 +197,22 @@ def test_json_and_text_describe_the_same_forecast(database):
     assert payload["headline"] in text
 
 
-def test_forecast_driver_count_is_configurable(database):
-    few = invoke(database, "forecast", "--drivers", "1").stdout
-    many = invoke(database, "forecast", "--drivers", "5").stdout
+def test_forecast_names_three_drivers(database):
+    """`--drivers` was removed; the explanation is fixed at three."""
+    result = invoke(database, "forecast")
 
-    assert few.count("which") < many.count("which")
+    assert result.exit_code == 0
+    # Count the driver verbs, not the bare word "which", which also appears in a caveat.
+    driven = sum(
+        result.stdout.count(f", which {verb}")
+        for verb in ("adds", "subtracts", "contributes")
+    )
+    assert driven == 3
+
+
+def test_forecast_has_no_drivers_option(database):
+    assert invoke(database, "forecast", "--drivers", "5").exit_code == 2
+    assert "--drivers" not in invoke(database, "forecast", "--help").stdout
 
 
 @pytest.mark.parametrize("model", ["ridge", "random_walk", "mean_3m", "drift"])
@@ -252,19 +263,14 @@ def test_backtest_rejects_an_impossible_interval_level(database):
 # -- ingest argument validation ------------------------------------------------
 
 
-def test_ingest_rejects_an_unknown_series(database):
-    """Validated before any network call, so a typo fails immediately."""
-    result = invoke(database, "ingest", "--series", "NOPE")
+def test_ingest_takes_no_series_or_start_options(database):
+    """Both were removed: ingest always pulls every series from the default start."""
+    assert invoke(database, "ingest", "--series", "NOPE").exit_code == 2
+    assert invoke(database, "ingest", "--start", "2020-01-01").exit_code == 2
 
-    assert result.exit_code == 2
-    assert "Unknown series" in result.output
-
-
-def test_ingest_rejects_a_malformed_start_date(database):
-    result = invoke(database, "ingest", "--start", "July 2026")
-
-    assert result.exit_code == 2
-    assert "Invalid date" in result.output
+    help_text = invoke(database, "ingest", "--help").stdout
+    assert "--series" not in help_text
+    assert "--start" not in help_text
 
 
 # -- shared failure handling ---------------------------------------------------
