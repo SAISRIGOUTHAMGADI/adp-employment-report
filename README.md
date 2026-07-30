@@ -16,8 +16,14 @@ and `pip` work identically.
 git clone https://github.com/SAISRIGOUTHAMGADI/adp-employment-report.git
 cd adp-employment-report
 uv venv .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
+source .venv/bin/activate
+uv pip install -e '.[dev]'
 ```
+
+Activating matters: `adp-forecast` is installed into `.venv/bin`, so without it the
+shell reports `command not found`. On Windows the activate step is
+`.venv\Scripts\activate`. If you would rather not activate, every command below also
+works as `.venv/bin/python -m adp_forecast <command>`.
 
 Get a free FRED API key at <https://fredaccount.stlouisfed.org/apikeys>, then:
 
@@ -35,8 +41,7 @@ adp-forecast forecast                # next month's prediction, with reasoning
 adp-forecast backtest                # accuracy vs naive baselines
 ```
 
-`adp-forecast --help` lists everything; each subcommand has its own `--help`. Without an
-editable install, `python -m adp_forecast <command>` works identically.
+`adp-forecast --help` lists everything; each subcommand has its own `--help`.
 
 ```
 $ adp-forecast history -n 4
@@ -91,9 +96,9 @@ costs ~2s, and a cutoff would miss a revision to an older observation arriving a
 ### Tests and linting
 
 ```bash
-.venv/bin/python -m pytest                      # everything (409 tests)
-.venv/bin/python -m pytest -m "not live"        # offline only, no API key needed
-.venv/bin/python -m flake8 src tests scripts
+pytest                      # everything (409 tests)
+pytest -m "not live"        # offline only, no API key needed
+flake8 src tests scripts
 ```
 
 Unit tests never touch the network. The integration tests are marked `live` and skip
