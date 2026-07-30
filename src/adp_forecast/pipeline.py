@@ -129,8 +129,7 @@ class IngestService:
         Idempotent and safe to re-run: writes upsert on the three-part vintage key, so
         a second run over the same range leaves the store in the same state.
 
-        A series that fails is logged, checkpointed as failed by omission, and the run
-        continues. One unavailable indicator should not cost the other six, and the
+        One unavailable indicator should not cost the other six, and the
         report makes the partial failure explicit rather than silent.
 
         Args:
